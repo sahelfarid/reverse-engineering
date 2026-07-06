@@ -31,6 +31,24 @@ def test_first_launch_serves_setup_page(fresh_client):
     assert b"setup-form" in res.data
 
 
+def test_auth_status_reflects_first_launch_state(fresh_client):
+    res = fresh_client.get("/api/auth/status")
+    assert res.status_code == 200
+    assert res.get_json() == {"setup_complete": False, "password_set": False, "authenticated": False}
+
+
+def test_auth_status_reflects_skip_as_open_access(fresh_client):
+    fresh_client.post("/api/auth/setup", data=json.dumps({"password": None}), content_type="application/json")
+    res = fresh_client.get("/api/auth/status")
+    assert res.get_json() == {"setup_complete": True, "password_set": False, "authenticated": True}
+
+
+def test_auth_status_with_password_set_and_not_logged_in(client):
+    res = client.get("/api/auth/status")
+    body = res.get_json()
+    assert body == {"setup_complete": True, "password_set": True, "authenticated": False}
+
+
 def test_setup_rejects_short_password(fresh_client):
     res = fresh_client.post(
         "/api/auth/setup", data=json.dumps({"password": "abc"}), content_type="application/json",

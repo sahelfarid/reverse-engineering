@@ -19,6 +19,21 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
+// Defensive self-check: if a password isn't actually required (skipped during
+// setup) or this session is already authenticated, this form is stale --
+// e.g. restored from the browser's back/forward cache after a reset or a
+// login elsewhere -- so bounce straight to the dashboard instead of showing
+// a login form that (with no password set) could never be submitted anyway.
+(async () => {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    if (!data.setup_complete || data.authenticated) {
+      window.location.replace('/');
+    }
+  } catch (err) { /* stay on the login form if the check itself fails */ }
+})();
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const password = document.getElementById('login-password').value;

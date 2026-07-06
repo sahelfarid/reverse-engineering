@@ -21,6 +21,18 @@ def index():
     )
 
 
+@bp.get("/api/auth/status")
+def auth_status():
+    """Unauthenticated, read-only auth state check. Lets the login/setup
+    pages self-correct on load (e.g. redirect to the dashboard) instead of
+    trusting a bfcache-restored or otherwise stale copy of themselves."""
+    return jsonify({
+        "setup_complete": auth.is_setup_complete(),
+        "password_set": auth.has_password(),
+        "authenticated": auth.is_authenticated(),
+    })
+
+
 @bp.post("/api/auth/setup")
 def setup():
     """First-launch only: optionally set a password, or explicitly skip

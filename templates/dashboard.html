@@ -7,27 +7,29 @@
     <ul class="nav-tabs">
       <li data-tab="dashboard" class="active">Dashboard</li>
       <li data-tab="devices">Devices</li>
-      <li data-tab="files">Files</li>
-      <li data-tab="shell">Shell</li>
-      <li data-tab="packages">Packages</li>
-      <li data-tab="inspector">App Inspector</li>
-      <li data-tab="logcat">Logcat</li>
-      <li data-tab="screen">Screen</li>
-      <li data-tab="automation">Automation</li>
-      <li data-tab="properties">Properties</li>
-      <li data-tab="network">Network</li>
+      <li data-tab="files" data-requires-device="true">Files</li>
+      <li data-tab="shell" data-requires-device="true">Shell</li>
+      <li data-tab="packages" data-requires-device="true">Packages</li>
+      <li data-tab="inspector" data-requires-device="true">App Inspector</li>
+      <li data-tab="logcat" data-requires-device="true">Logcat</li>
+      <li data-tab="screen" data-requires-device="true">Screen</li>
+      <li data-tab="automation" data-requires-device="true">Automation</li>
+      <li data-tab="properties" data-requires-device="true">Properties</li>
+      <li data-tab="network" data-requires-device="true">Network</li>
       <li data-tab="wireless">Wireless</li>
-      <li data-tab="backup">Backup</li>
-      <li data-tab="battery">Battery/HW</li>
-      <li data-tab="permissions">Permissions</li>
-      <li data-tab="clipboard">Clipboard</li>
-      <li data-tab="media">Media</li>
-      <li data-tab="processes">Processes</li>
-      <li data-tab="frida">Frida</li>
+      <li data-tab="backup" data-requires-device="true">Backup</li>
+      <li data-tab="battery" data-requires-device="true">Battery/HW</li>
+      <li data-tab="permissions" data-requires-device="true">Permissions</li>
+      <li data-tab="clipboard" data-requires-device="true">Clipboard</li>
+      <li data-tab="media" data-requires-device="true">Media</li>
+      <li data-tab="processes" data-requires-device="true">Processes</li>
+      <li data-tab="frida" data-requires-device="true">Frida</li>
       <li data-tab="settings">Settings</li>
     </ul>
     <button id="theme-toggle" class="ghost-btn">Toggle theme</button>
+    {% if settings.password_hash %}
     <button id="logout-btn" class="ghost-btn">Log out</button>
+    {% endif %}
   </nav>
 
   <main class="content">

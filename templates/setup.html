@@ -18,6 +18,19 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
+// Defensive self-check: if setup was already completed (e.g. in another tab,
+// or this is a stale back/forward-cached copy of this page), don't let a
+// resubmission hit the already_configured error -- just move on.
+(async () => {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    if (data.setup_complete) {
+      window.location.replace('/');
+    }
+  } catch (err) { /* stay on the setup form if the check itself fails */ }
+})();
+
 async function submitSetup(password) {
   const errEl = document.getElementById('setup-error');
   errEl.hidden = true;

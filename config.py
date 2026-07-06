@@ -61,7 +61,7 @@ KNOWN_DEVICES_PATH = DATA_DIR / "known_devices.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log"
 MACROS_PATH = DATA_DIR / "macros.json"
 
-PLATFORM_TOOLS_URL_TEMPLATE = "https://dl.google.com/android/repo/platform-tools-latest-{tag}.zip"
+PLATFORM_TOOLS_URL_TEMPLATE = "https://dl.google.com/android/repository/platform-tools-latest-{tag}.zip"
 
 DEFAULT_SETTINGS = {
     "adb_path_override": None,

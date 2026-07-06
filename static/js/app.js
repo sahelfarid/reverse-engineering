@@ -73,6 +73,23 @@ function currentTab() {
   return active ? active.dataset.tab : null;
 }
 
+// Nav items marked data-requires-device only make sense against a connected,
+// authorized device -- hide them otherwise instead of leaving a click target
+// whose pane will just say "select a device".
+function updateNavDeviceGating(_serial, device) {
+  const hasDevice = !!(device && device.state === 'device');
+  document.querySelectorAll('.nav-tabs li[data-requires-device]').forEach((li) => {
+    li.style.display = hasDevice ? '' : 'none';
+  });
+  if (!hasDevice) {
+    const active = document.querySelector('.nav-tabs li.active');
+    if (active && active.hasAttribute('data-requires-device')) {
+      const dashboardTab = document.querySelector('.nav-tabs li[data-tab="dashboard"]');
+      if (dashboardTab) dashboardTab.click();
+    }
+  }
+}
+
 // --- Theme --------------------------------------------------------------
 function initTheme() {
   const toggle = document.getElementById('theme-toggle');
@@ -175,4 +192,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogout();
   initKeyboardShortcuts();
   refreshAdbStatus();
+  if (typeof onDeviceChange === 'function') onDeviceChange(updateNavDeviceGating);
 });

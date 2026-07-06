@@ -36,6 +36,8 @@ body {
 }
 .login-card input, .login-card button { padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
 .login-card button { background: var(--accent); color: white; border: none; cursor: pointer; }
+.login-card a, .login-card a:visited { color: var(--accent); text-decoration: none; }
+.login-card a:hover { text-decoration: underline; }
 .muted { color: var(--muted); font-size: 0.9em; }
 .error-text { color: var(--red); }
 
@@ -49,6 +51,9 @@ body {
 .nav-tabs li { padding: 10px 16px; cursor: pointer; color: var(--muted); font-size: 0.92em; }
 .nav-tabs li:hover { background: var(--panel-2); }
 .nav-tabs li.active { color: var(--text); background: var(--panel-2); border-left: 3px solid var(--accent); }
+/* Default-hidden until app.js confirms a connected device is actually selected --
+   avoids a flash of tabs that would just show "select a device" anyway. */
+.nav-tabs li[data-requires-device] { display: none; }
 .ghost-btn {
   margin: 4px 16px; padding: 8px; background: transparent; border: 1px solid var(--border);
   border-radius: 8px; color: var(--muted); cursor: pointer;

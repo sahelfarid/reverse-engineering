@@ -30,6 +30,7 @@ async function refreshDevices() {
       sel.innerHTML = '<option value="">ADB not installed</option>';
       ADB_DEVICES = [];
       renderDevicesTab();
+      DEVICE_CHANGE_LISTENERS.forEach((fn) => fn(null, null));
       return;
     }
     const data = await res.json();
