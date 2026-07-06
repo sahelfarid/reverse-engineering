@@ -12,17 +12,19 @@ Command used:
 .venv/bin/python -m coverage run -m pytest -q && .venv/bin/python -m coverage report -m
 ```
 
-Result: 71 tests passed in 1.13s. Total measured Python coverage: 51%.
+Result (original audit): 71 tests passed in 1.13s. Total measured Python coverage: 51%.
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
+
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 125 tests passed, total coverage 61%, as of the devices/dashboard pass.
 
 ## Coverage Summary
 
 | Area | Backend coverage | Route/support coverage |
 | --- | ---: | ---: |
-| Core app/auth/config/desktop | app 55%, auth 62%, config 83%, desktop 44% | routes/core 55% |
-| ADB manager | 50% | n/a |
-| Devices and dashboard | devices 35%, dashboard 15% | routes/devices 54% |
+| Core app/auth/config/desktop | app 55%, auth 68%, config 92%, desktop 57% | routes/core 66% |
+| ADB manager | 80% | n/a |
+| Devices and dashboard | devices 89%, dashboard 98% | routes/devices 97% |
 | Shell | 30% | routes/shell 43% |
 | Files | 36% | routes/files 24% |
 | Packages | 39% | routes/packages 35% |
