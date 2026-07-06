@@ -39,7 +39,10 @@ def stream_logcat(serial: str, tag: str | None, pid: str | None, min_level: str 
         raise manager.AdbNotInstalledError("adb is not installed")
 
     min_rank = _LEVEL_ORDER.get((min_level or "V").upper(), 0)
-    query_re = re.compile(query, re.IGNORECASE) if query else None
+    try:
+        query_re = re.compile(query, re.IGNORECASE) if query else None
+    except re.error as exc:
+        raise manager.AdbError(f"invalid regex query: {exc}") from exc
 
     process = subprocess.Popen(
         [str(adb_path), "-s", serial, "logcat", "-v", "threadtime"],

@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 232 tests passed, total coverage 76%, as of the app-inspector pass. Real bugs found and fixed so far: `routes/files.py` and `routes/packages.py` never actually cleaned up temp directories (`send_file()`/`direct_passthrough` swallows `call_on_close`; `routes/backup.py`, `routes/jobs.py`, and `routes/screen.py` still need the same check), `pull_apk()` could return a nonexistent path, and `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header on real device output.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 247 tests passed, total coverage 77%, as of the logcat pass. Real bugs found and fixed so far: `routes/files.py` and `routes/packages.py` never actually cleaned up temp directories (`send_file()`/`direct_passthrough` swallows `call_on_close`; `routes/backup.py`, `routes/jobs.py`, and `routes/screen.py` still need the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header on real device output, and an invalid logcat query regex could crash the SSE stream instead of returning a clean error.
 
 ## Coverage Summary
 
@@ -29,7 +29,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Files | 98% | routes/files 89% |
 | Packages | 99% | routes/packages 91% |
 | App inspector | 100% | routes/app_inspector 96% |
-| Logcat | 32% | routes/logcat 39% |
+| Logcat | 94% | routes/logcat 100% |
 | Screen | 24% | routes/screen 49% |
 | Automation | 39% | routes/automation 48% |
 | Properties | 92% | routes/properties 53% |
