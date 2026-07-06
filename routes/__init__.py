@@ -5,6 +5,7 @@ from . import battery  # noqa: F401
 from . import core  # noqa: F401
 from . import devices  # noqa: F401
 from . import files  # noqa: F401
+from . import jobs  # noqa: F401
 from . import logcat  # noqa: F401
 from . import network  # noqa: F401
 from . import packages  # noqa: F401
@@ -29,3 +30,4 @@ def register_blueprints(app):
     app.register_blueprint(backup.bp)
     app.register_blueprint(battery.bp)
     app.register_blueprint(process_manager.bp)
+    app.register_blueprint(jobs.bp)

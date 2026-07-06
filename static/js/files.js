@@ -160,7 +160,7 @@ function renderFilesTable(serial, currentPath, entries) {
         <td>${escapeHtml(e.mtime || '—')}</td>
         <td>${escapeHtml(e.perms || '—')}</td>
         <td class="file-actions">
-          ${isDir ? `<button data-act="zip">ZIP</button>` : `<a href="/api/devices/${encodeURIComponent(serial)}/files/download?path=${encodeURIComponent(fullPath)}"><button type="button">DL</button></a>`}
+          ${isDir ? `<button data-act="zip">ZIP</button><button data-act="zip-async" title="Run as a cancellable background job (Settings tab)">ZIP (job)</button>` : `<a href="/api/devices/${encodeURIComponent(serial)}/files/download?path=${encodeURIComponent(fullPath)}"><button type="button">DL</button></a>`}
           ${!isDir ? `<button data-act="preview">View</button>` : ''}
           <button data-act="rename">Ren</button>
           <button data-act="move">Mv</button>
@@ -191,6 +191,12 @@ function renderFilesTable(serial, currentPath, entries) {
 async function handleFileAction(serial, path, isDir, action, currentPath) {
   if (action === 'zip') {
     window.location.href = `/api/devices/${encodeURIComponent(serial)}/files/download-folder?path=${encodeURIComponent(path)}`;
+    return;
+  }
+  if (action === 'zip-async') {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/files/download-folder/async?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    toast(data.ok ? 'Folder ZIP job started — see Settings → Background jobs' : `Failed: ${data.error}`, data.ok ? 'success' : 'error');
     return;
   }
   if (action === 'preview') return openPreview(serial, path);

@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 
 import auth
 import config
+from adb import jobs as adb_jobs
 from adb import manager as adb_manager
 from adb import packages as adb_packages
 
@@ -64,6 +65,43 @@ def install(serial):
     auth.audit_log("package_install", {"serial": serial, "files": [f.filename for f in files]})
     status = 200 if result["ok"] else 500
     return jsonify(result), status
+
+
+@bp.post("/api/devices/<serial>/packages/install/async")
+@auth.login_required
+@auth.csrf_protect
+def install_async(serial):
+    files = request.files.getlist("apk")
+    if not files:
+        return jsonify({"ok": False, "error": "missing_apk"}), 400
+    tmp_dir = tempfile.mkdtemp(dir=config.TEMP_DIR)
+    local_paths, names = [], []
+    for f in files:
+        name = secure_filename(f.filename or "app.apk")
+        local_path = Path(tmp_dir) / name
+        f.save(local_path)
+        local_paths.append(local_path)
+        names.append(name)
+
+    job_id = adb_jobs.create_job("package_install", label=", ".join(names))
+
+    def _run(job_id):
+        try:
+            adb_path = adb_manager.find_adb()
+            if adb_path is None:
+                raise adb_manager.AdbNotInstalledError("adb is not installed")
+            if len(local_paths) > 1:
+                args = ["-s", serial, "install-multiple", "-r", *[str(p) for p in local_paths]]
+            else:
+                args = ["-s", serial, "install", "-r", str(local_paths[0])]
+            adb_jobs.run_adb_with_progress(job_id, adb_path, args, timeout=300)
+            return {"installed": names}
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    adb_jobs.run_in_background(job_id, _run)
+    auth.audit_log("package_install_async", {"serial": serial, "files": names})
+    return jsonify({"ok": True, "job_id": job_id})
 
 
 @bp.post("/api/devices/<serial>/packages/<package>/uninstall")

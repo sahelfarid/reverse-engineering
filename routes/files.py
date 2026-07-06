@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 import auth
 import config
 from adb import files as adb_files
+from adb import jobs as adb_jobs
 from adb import manager as adb_manager
 
 bp = Blueprint("files", __name__)
@@ -234,3 +235,37 @@ def download_folder(serial):
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return response
+
+
+@bp.get("/api/devices/<serial>/files/download-folder/async")
+@auth.login_required
+def download_folder_async(serial):
+    path = request.args.get("path", "")
+    if not path:
+        return jsonify({"ok": False, "error": "missing_path"}), 400
+    folder_name = path.rstrip("/").rsplit("/", 1)[-1] or "root"
+    tmp_dir = tempfile.mkdtemp(dir=config.TEMP_DIR)
+    pulled_dir = Path(tmp_dir) / "pulled"
+    pulled_dir.mkdir()
+
+    job_id = adb_jobs.create_job("folder_download", label=path)
+
+    def _run(job_id):
+        try:
+            adb_path = adb_manager.find_adb()
+            if adb_path is None:
+                raise adb_manager.AdbNotInstalledError("adb is not installed")
+            adb_jobs.run_adb_with_progress(
+                job_id, adb_path, ["-s", serial, "pull", path, str(pulled_dir)], timeout=1800
+            )
+            pulled_root = pulled_dir / folder_name
+            zip_source = pulled_root if pulled_root.is_dir() else pulled_dir
+            zip_path = adb_files.zip_folder(zip_source, Path(tmp_dir) / "bundle")
+            return {"file_path": str(zip_path), "download_name": f"{folder_name}.zip", "tmp_dir": tmp_dir}
+        except Exception:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
+
+    adb_jobs.run_in_background(job_id, _run)
+    auth.audit_log("file_download_folder_async", {"serial": serial, "path": path})
+    return jsonify({"ok": True, "job_id": job_id})

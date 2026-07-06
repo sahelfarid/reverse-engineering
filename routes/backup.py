@@ -8,6 +8,7 @@ import auth
 import config
 from adb import backup as adb_backup
 from adb import files as adb_files
+from adb import jobs as adb_jobs
 from adb import manager as adb_manager
 from adb import packages as adb_packages
 
@@ -120,3 +121,25 @@ def export_app_data(serial):
         return err
     auth.audit_log("backup_export_app_data", {"serial": serial, "package": package})
     return _send_and_cleanup(local_path, tmp_dir, f"{package}_data.tar.gz")
+
+
+@bp.get("/api/devices/<serial>/backup/app-data/async")
+@auth.login_required
+def export_app_data_async(serial):
+    package = request.args.get("package", "")
+    if not package:
+        return jsonify({"ok": False, "error": "missing_package"}), 400
+    tmp_dir = tempfile.mkdtemp(dir=config.TEMP_DIR)
+    job_id = adb_jobs.create_job("app_data_export", label=package)
+
+    def _run(job_id):
+        try:
+            local_path = adb_backup.export_app_data(serial, package, Path(tmp_dir))
+            return {"file_path": str(local_path), "download_name": f"{package}_data.tar.gz", "tmp_dir": tmp_dir}
+        except Exception:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
+
+    adb_jobs.run_in_background(job_id, _run)
+    auth.audit_log("backup_export_app_data_async", {"serial": serial, "package": package})
+    return jsonify({"ok": True, "job_id": job_id})

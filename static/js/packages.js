@@ -18,6 +18,7 @@ function renderPackagesTab() {
         <label><input type="checkbox" id="packages-system-toggle"> Show system apps</label>
         <button id="packages-refresh-btn">Refresh</button>
         <label class="ghost-btn" style="display:inline-block;">Install APK(s)<input type="file" id="packages-install-input" accept=".apk" multiple style="display:none;"></label>
+        <label class="ghost-btn" style="display:inline-block;">Install as background job<input type="file" id="packages-install-async-input" accept=".apk" multiple style="display:none;"></label>
       </div>
       <div id="packages-alert"></div>
       <table>
@@ -45,6 +46,18 @@ function wirePackagesToolbar(serial) {
       const data = await res.json();
       if (data.ok) { toast('Install succeeded', 'success'); loadPackages(serial); }
       else toast(`Install failed: ${data.output || data.error}`, 'error');
+    } catch (err) { toast(`Install failed: ${err}`, 'error'); }
+    e.target.value = '';
+  });
+  document.getElementById('packages-install-async-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const form = new FormData();
+    files.forEach((f) => form.append('apk', f));
+    try {
+      const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/packages/install/async`, { method: 'POST', body: form });
+      const data = await res.json();
+      toast(data.ok ? `Install job started — see Settings → Background jobs` : `Failed: ${data.error}`, data.ok ? 'success' : 'error');
     } catch (err) { toast(`Install failed: ${err}`, 'error'); }
     e.target.value = '';
   });

@@ -17,6 +17,12 @@ function renderSettingsTab() {
         <button id="settings-change-password-btn">Change password</button>
       </div>
       <div class="card" style="grid-column: span 2;">
+        <h4>Background jobs</h4>
+        <div class="muted">APK installs, folder downloads, and app-data exports triggered "as a background job" show up here with progress and a Cancel/Download action.</div>
+        <button id="settings-jobs-refresh-btn" style="margin-top:6px;">Refresh</button>
+        <div id="settings-jobs-body" style="margin-top:8px;"></div>
+      </div>
+      <div class="card" style="grid-column: span 2;">
         <h4>Audit log (privileged actions)</h4>
         <button id="settings-audit-refresh-btn">Refresh</button>
         <div id="settings-audit-body" style="margin-top:8px; max-height:300px; overflow-y:auto;"></div>
@@ -25,9 +31,49 @@ function renderSettingsTab() {
   `;
   loadSettingsForm();
   loadAuditLog();
+  loadJobsPanel();
   document.getElementById('settings-save-btn').addEventListener('click', saveSettingsForm);
   document.getElementById('settings-change-password-btn').addEventListener('click', changePassword);
   document.getElementById('settings-audit-refresh-btn').addEventListener('click', loadAuditLog);
+  document.getElementById('settings-jobs-refresh-btn').addEventListener('click', loadJobsPanel);
+}
+
+let jobsPollTimer = null;
+
+async function loadJobsPanel() {
+  const body = document.getElementById('settings-jobs-body');
+  if (!body) return;
+  const res = await apiFetch('/api/jobs');
+  const data = await res.json();
+  const jobsList = data.jobs || [];
+  if (!jobsList.length) { body.innerHTML = '<div class="muted">No jobs yet</div>'; }
+  else {
+    body.innerHTML = jobsList.map((j) => `
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+        <div style="width:140px;">${escapeHtml(j.type)}</div>
+        <div style="flex:1;">${escapeHtml(j.label || '')} <span class="badge ${j.status === 'done' ? 'green' : j.status === 'error' ? 'red' : 'yellow'}">${escapeHtml(j.status)}</span> ${j.progress != null ? j.progress + '%' : ''}</div>
+        ${j.status === 'running' || j.status === 'pending' ? `<button data-job="${j.id}" data-act="cancel">Cancel</button>` : ''}
+        ${j.status === 'done' && j.result && j.result.file_path ? `<button data-job="${j.id}" data-act="download">Download</button>` : ''}
+        ${j.status === 'error' ? `<span class="muted">${escapeHtml(j.error || '')}</span>` : ''}
+      </div>`).join('');
+    body.querySelectorAll('button[data-act]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (btn.dataset.act === 'cancel') {
+          await apiFetch(`/api/jobs/${btn.dataset.job}/cancel`, { method: 'POST' });
+          loadJobsPanel();
+        } else {
+          window.location.href = `/api/jobs/${btn.dataset.job}/download`;
+        }
+      });
+    });
+  }
+  const hasActive = jobsList.some((j) => j.status === 'running' || j.status === 'pending');
+  if (hasActive && !jobsPollTimer) {
+    jobsPollTimer = setInterval(loadJobsPanel, 2000);
+  } else if (!hasActive && jobsPollTimer) {
+    clearInterval(jobsPollTimer);
+    jobsPollTimer = null;
+  }
 }
 
 async function loadSettingsForm() {
@@ -96,5 +142,8 @@ async function loadAuditLog() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  onTabChange((tab) => { if (tab === 'settings') renderSettingsTab(); });
+  onTabChange((tab) => {
+    if (tab === 'settings') { renderSettingsTab(); }
+    else if (jobsPollTimer) { clearInterval(jobsPollTimer); jobsPollTimer = null; }
+  });
 });

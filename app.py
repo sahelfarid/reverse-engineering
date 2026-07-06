@@ -24,6 +24,8 @@ if __name__ == "__main__":
         print("It is stored (hashed) in data/settings.json — change it")
         print("later from the Settings tab.")
         print("=" * 60)
+    # threaded=True: background jobs + SSE (logcat) streams need concurrent
+    # requests, which the dev server won't serve otherwise.
     # Local developer tool only: it can run a root shell and read/write
     # device files, so it must never bind anything but loopback.
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True, threaded=True)

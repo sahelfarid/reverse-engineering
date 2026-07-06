@@ -31,6 +31,7 @@ function renderBackupTab() {
         <div style="display:flex; gap:8px; margin-bottom:6px;">
           <input type="text" id="backup-data-package" placeholder="Package" style="flex:1;">
           <button id="backup-appdata-btn">Export app data (.tar.gz)</button>
+          <button id="backup-appdata-async-btn" title="Run as a cancellable background job (Settings tab)">…as background job</button>
         </div>
         <div style="display:flex; gap:8px;">
           <input type="text" id="backup-db-name" placeholder="Database file name" style="flex:1;">
@@ -55,6 +56,13 @@ function renderBackupTab() {
     const pkg = document.getElementById('backup-data-package').value.trim();
     if (!pkg) return;
     await downloadOrError(`/api/devices/${encodeURIComponent(serial)}/backup/app-data?package=${encodeURIComponent(pkg)}`);
+  });
+  document.getElementById('backup-appdata-async-btn').addEventListener('click', async () => {
+    const pkg = document.getElementById('backup-data-package').value.trim();
+    if (!pkg) return;
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/backup/app-data/async?package=${encodeURIComponent(pkg)}`);
+    const data = await res.json();
+    toast(data.ok ? 'Export job started — see Settings → Background jobs' : `Failed: ${data.error}`, data.ok ? 'success' : 'error');
   });
   document.getElementById('backup-db-btn').addEventListener('click', async () => {
     const pkg = document.getElementById('backup-data-package').value.trim();
