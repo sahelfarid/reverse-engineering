@@ -140,9 +140,39 @@ async function installAdb() {
   }
 }
 
+// --- Keyboard shortcuts -----------------------------------------------------
+function initKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key >= '1' && e.key <= '9') {
+      const items = document.querySelectorAll('.nav-tabs li');
+      const idx = parseInt(e.key, 10) - 1;
+      if (items[idx]) items[idx].click();
+      return;
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      if (window.refreshDevices) window.refreshDevices();
+      toast('Refreshing devices…', 'info', 1500);
+      return;
+    }
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('preview-modal');
+      if (modal) modal.style.display = 'none';
+      return;
+    }
+    if (e.key === '?') {
+      toast('Shortcuts: 1-9 switch tabs · r refresh devices · Esc close preview', 'info', 6000);
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initTheme();
   initLogout();
+  initKeyboardShortcuts();
   refreshAdbStatus();
 });
