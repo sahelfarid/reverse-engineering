@@ -84,12 +84,15 @@ def get_settings():
 @auth.csrf_protect
 def update_settings():
     data = request.get_json(silent=True) or {}
-    data.pop("password_hash", None)
-    config.save_settings(data)
-    auth.audit_log("settings_update", {"keys": list(data.keys())})
+    accepted, rejected = config.validate_settings_patch(data)
+    config.save_settings(accepted)
+    auth.audit_log("settings_update", {"keys": list(accepted.keys()), "rejected": rejected})
     settings = dict(config.load_settings())
     settings.pop("password_hash", None)
-    return jsonify({"ok": True, "settings": settings})
+    response = {"ok": True, "settings": settings}
+    if rejected:
+        response["rejected"] = rejected
+    return jsonify(response)
 
 
 @bp.get("/api/audit")

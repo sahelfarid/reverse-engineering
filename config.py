@@ -112,6 +112,47 @@ def save_settings(settings: dict) -> None:
     _save_json(SETTINGS_PATH, merged)
 
 
+def _is_int_in_range(low: int, high: int):
+    def check(value) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+    return check
+
+
+def _is_optional_str(value) -> bool:
+    return value is None or isinstance(value, str)
+
+
+SETTINGS_VALIDATORS = {
+    "adb_path_override": _is_optional_str,
+    "refresh_interval_ms": _is_int_in_range(250, 60_000),
+    "default_device_serial": _is_optional_str,
+    "shell_timeout_sec": _is_int_in_range(1, 300),
+    "max_log_lines": _is_int_in_range(100, 200_000),
+    "max_upload_mb": _is_int_in_range(1, 4096),
+    "download_dir": lambda value: isinstance(value, str) and bool(value.strip()),
+    "theme": lambda value: value in ("dark", "light"),
+}
+
+
+def validate_settings_patch(data: dict) -> tuple[dict, list[str]]:
+    """Split an incoming settings patch into accepted and rejected keys.
+
+    `password_hash` is never accepted here -- it is only ever set by the
+    change-password flow. Unknown keys and out-of-schema/out-of-range values
+    are rejected rather than raising, so one bad field doesn't block the rest
+    of a settings save.
+    """
+    accepted = {}
+    rejected = []
+    for key, value in data.items():
+        validator = SETTINGS_VALIDATORS.get(key)
+        if key == "password_hash" or validator is None or not validator(value):
+            rejected.append(key)
+            continue
+        accepted[key] = value
+    return accepted, rejected
+
+
 def load_known_devices() -> dict:
     return _load_json(KNOWN_DEVICES_PATH, {})
 

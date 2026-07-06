@@ -1,6 +1,8 @@
 import json
 import socket
+import urllib.error
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import config
 import desktop
@@ -116,3 +118,27 @@ def test_clear_lock_is_idempotent(monkeypatch, tmp_path):
     assert (tmp_path / "desktop.lock").exists()
     desktop.clear_lock()
     assert not (tmp_path / "desktop.lock").exists()
+
+
+# --- readiness polling -------------------------------------------------------
+
+def test_wait_until_ready_returns_true_on_200():
+    fake_resp = MagicMock(status=200)
+    fake_resp.__enter__ = MagicMock(return_value=fake_resp)
+    fake_resp.__exit__ = MagicMock(return_value=False)
+    with patch("desktop.urllib.request.urlopen", return_value=fake_resp):
+        assert desktop.wait_until_ready(12345, timeout=1.0) is True
+
+
+def test_wait_until_ready_times_out_returns_false(monkeypatch):
+    monkeypatch.setattr(desktop.time, "sleep", lambda _seconds: None)
+    with patch("desktop.urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
+        assert desktop.wait_until_ready(12345, timeout=0.01) is False
+
+
+# --- main() existing-instance short circuit ---------------------------------
+
+def test_main_returns_early_when_instance_already_running(monkeypatch, capsys):
+    monkeypatch.setattr(desktop, "read_lock", lambda: {"pid": 111, "port": 4242})
+    assert desktop.main() == 0
+    assert "already running" in capsys.readouterr().out

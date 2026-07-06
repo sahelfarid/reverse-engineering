@@ -52,3 +52,51 @@ def test_mutating_request_without_csrf_token_is_rejected(client):
     res = client.post("/api/adb/install")
     assert res.status_code == 403
     assert res.get_json()["error"] == "csrf_failed"
+
+
+def _login_and_get_csrf(client):
+    res = client.post("/api/auth/login", data=json.dumps({"password": TEST_PASSWORD}), content_type="application/json")
+    return res.get_json()["csrf_token"]
+
+
+def test_update_settings_accepts_valid_known_keys(client):
+    csrf = _login_and_get_csrf(client)
+    res = client.post(
+        "/api/settings",
+        data=json.dumps({"theme": "light", "shell_timeout_sec": 45}),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf},
+    )
+    body = res.get_json()
+    assert res.status_code == 200
+    assert body["ok"] is True
+    assert body["settings"]["theme"] == "light"
+    assert body["settings"]["shell_timeout_sec"] == 45
+    assert "rejected" not in body
+
+
+def test_update_settings_rejects_unknown_and_out_of_range_keys(client):
+    csrf = _login_and_get_csrf(client)
+    res = client.post(
+        "/api/settings",
+        data=json.dumps({"theme": "not-a-theme", "shell_timeout_sec": 99999, "made_up_key": 1}),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf},
+    )
+    body = res.get_json()
+    assert res.status_code == 200
+    assert set(body["rejected"]) == {"theme", "shell_timeout_sec", "made_up_key"}
+
+
+def test_update_settings_ignores_password_hash_field(client):
+    csrf = _login_and_get_csrf(client)
+    res = client.post(
+        "/api/settings",
+        data=json.dumps({"password_hash": "attacker-controlled"}),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf},
+    )
+    body = res.get_json()
+    assert res.status_code == 200
+    assert "password_hash" in body["rejected"]
+    assert "password_hash" not in body["settings"]
