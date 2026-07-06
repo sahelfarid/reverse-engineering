@@ -10,10 +10,14 @@ bp = Blueprint("core", __name__)
 
 @bp.get("/")
 def index():
+    # Pass the saved theme to the pre-auth pages too, so a returning user's
+    # dark/light/system choice is honoured on the login/setup screens (they
+    # don't load /api/settings). The client's localStorage still wins once set.
+    theme = config.load_settings().get("theme", "dark")
     if not auth.is_setup_complete():
-        return render_template("setup.html")
+        return render_template("setup.html", theme=theme)
     if not auth.is_authenticated():
-        return render_template("login.html")
+        return render_template("login.html", theme=theme)
     return render_template(
         "dashboard.html",
         csrf_token=auth.ensure_csrf_token(),

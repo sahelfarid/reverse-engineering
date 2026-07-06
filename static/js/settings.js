@@ -93,6 +93,7 @@ async function loadSettingsForm() {
       <select id="set-theme" style="width:100%;">
         <option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option>
         <option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option>
+        <option value="system" ${s.theme === 'system' ? 'selected' : ''}>System (follow OS)</option>
       </select>
     </label>
   `;
@@ -115,7 +116,8 @@ async function saveSettingsForm() {
   if (data.ok) {
     toast('Settings saved', 'success');
     window.APP_SETTINGS = data.settings;
-    document.documentElement.setAttribute('data-theme', data.settings.theme);
+    if (window.setThemeMode) window.setThemeMode(data.settings.theme);
+    else document.documentElement.setAttribute('data-theme', data.settings.theme);
   } else {
     toast(`Save failed: ${data.error}`, 'error');
   }

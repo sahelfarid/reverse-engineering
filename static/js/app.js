@@ -91,13 +91,23 @@ function updateNavDeviceGating(_serial, device) {
 }
 
 // --- Theme --------------------------------------------------------------
+// Cycle dark -> light -> system. window.getThemeMode/setThemeMode come from the
+// inline bootstrap in base.html, which owns localStorage + prefers-color-scheme
+// resolution; here we only cycle the mode and mirror it to server settings.
+const THEME_MODES = ['dark', 'light', 'system'];
+const THEME_LABELS = { dark: 'Dark', light: 'Light', system: 'System' };
+function themeButtonLabel(mode) { return `Theme: ${THEME_LABELS[mode] || 'System'}`; }
+
 function initTheme() {
   const toggle = document.getElementById('theme-toggle');
-  if (!toggle) return;
+  if (!toggle || !window.getThemeMode) return;
+  const sync = () => { toggle.textContent = themeButtonLabel(window.getThemeMode()); };
+  sync();
   toggle.addEventListener('click', async () => {
-    const html = document.documentElement;
-    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', next);
+    const cur = window.getThemeMode();
+    const next = THEME_MODES[(THEME_MODES.indexOf(cur) + 1) % THEME_MODES.length];
+    window.setThemeMode(next);
+    sync();
     try { await apiFetch('/api/settings', { method: 'POST', body: { theme: next } }); } catch (e) { /* ignore */ }
   });
 }

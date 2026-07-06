@@ -62,7 +62,15 @@ document.getElementById('setup-form').addEventListener('submit', (e) => {
   const confirm = document.getElementById('setup-password-confirm').value;
   const errEl = document.getElementById('setup-error');
   errEl.hidden = true;
-  if (!password) { submitSetup(null); return; }
+  // Submitting the form with an empty field used to silently take the skip
+  // (open-access) path, so hitting "Set Password & Continue" left the panel
+  // with no password at all. Require an explicit choice: type a password, or
+  // use the dedicated "Skip for now" button below.
+  if (!password) {
+    errEl.textContent = 'Enter a password (min 6 characters), or use "Skip for now" to continue without one.';
+    errEl.hidden = false;
+    return;
+  }
   if (password.length < 6) {
     errEl.textContent = 'Password must be at least 6 characters (or leave both fields blank to skip).';
     errEl.hidden = false;

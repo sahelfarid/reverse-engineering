@@ -142,7 +142,7 @@ SETTINGS_VALIDATORS = {
     "max_log_lines": _is_int_in_range(100, 200_000),
     "max_upload_mb": _is_int_in_range(1, 4096),
     "download_dir": lambda value: isinstance(value, str) and bool(value.strip()),
-    "theme": lambda value: value in ("dark", "light"),
+    "theme": lambda value: value in ("dark", "light", "system"),
 }
 
 

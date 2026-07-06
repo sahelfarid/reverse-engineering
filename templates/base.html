@@ -1,9 +1,47 @@
 <!doctype html>
-<html lang="en" data-theme="{{ settings.theme if settings else 'dark' }}">
+<html lang="en" data-theme-mode="{{ theme if theme else (settings.theme if settings else 'system') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ADB Device Manager{% endblock %}</title>
+  <script>
+    // Runs before the stylesheet so the resolved theme is on <html> before
+    // first paint (no flash), and so login/setup pages honour the remembered
+    // theme even though they don't load /api/settings. The chosen *mode*
+    // (dark | light | system) lives in localStorage; "system" resolves live
+    // against the OS via prefers-color-scheme.
+    (function () {
+      var KEY = 'adbpanel.theme';
+      var root = document.documentElement;
+      function mql() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)'); }
+      function resolve(mode) {
+        if (mode === 'dark' || mode === 'light') return mode;
+        var m = mql();
+        return m && m.matches ? 'dark' : 'light';
+      }
+      function currentMode() {
+        var stored = null;
+        try { stored = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
+        return stored || root.getAttribute('data-theme-mode') || 'system';
+      }
+      function apply(mode) {
+        root.setAttribute('data-theme-mode', mode);
+        root.setAttribute('data-theme', resolve(mode));
+      }
+      window.getThemeMode = currentMode;
+      window.setThemeMode = function (mode) {
+        try { localStorage.setItem(KEY, mode); } catch (e) { /* private mode */ }
+        apply(mode);
+      };
+      apply(currentMode());
+      var m = mql();
+      if (m) {
+        var onChange = function () { if (currentMode() === 'system') apply('system'); };
+        if (m.addEventListener) m.addEventListener('change', onChange);
+        else if (m.addListener) m.addListener(onChange);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block extra_head %}{% endblock %}
 </head>
