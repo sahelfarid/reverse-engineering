@@ -2,7 +2,7 @@
 
 Files: `adb/root_detection.py`, `routes/root_detection.py`
 
-Coverage: backend 82%, route 53%.
+Coverage: backend 98% (was 82%), route 100% (was 53%).
 
 ## Implementation
 
@@ -13,18 +13,17 @@ Coverage: backend 82%, route 53%.
 
 ## Verified
 
-- Summary verdicts are covered for all-clear, working root, su-only, Magisk-only, and weak-signal-only combinations.
+- Summary verdicts are covered for all-clear, working root, su-only, Magisk-only, weak-signal-only, and busybox-only combinations.
 - Build integrity parsing is covered including partial output.
-- su path parsing and Magisk installed detection are covered.
+- su path parsing and Magisk installed/not-installed detection are covered.
+- `check_busybox()` is covered for found and not-found (both nonzero exit and empty-output-with-rc-0) cases.
+- `get_integrity_report()` orchestration is covered: verifies every helper (`check_su_paths`, `check_magisk`, `check_busybox`, `check_build_integrity`, `manager.has_root_shell`) is called exactly once with the serial, the disclaimer text is present, and `manager.validate_serial()` is checked first (an `AdbError` there propagates before any device calls).
+- Route is covered for success, `AdbNotInstalledError` -> 503, `AdbError` -> 400, and login-required 401.
 
 ## Gaps And Risks
 
-- `get_integrity_report()` orchestration is not directly tested.
-- Busybox detection is not covered.
-- Host-side detection remains best-effort and can be defeated by root hiding; the module documents this limitation clearly.
+- Host-side detection remains best-effort and can be defeated by root hiding (Magisk DenyList, custom kernels); the module documents this limitation clearly in its own docstring and disclaimer, and no amount of unit testing changes that inherent limitation.
 
 ## Recommended Tests
 
-- Orchestration tests with all helper calls mocked, including `manager.validate_serial()`.
-- Busybox success/failure tests.
-- Flask client tests for route success, ADB not installed, generic ADB errors, and response shape.
+- None outstanding for this module's Python surface.

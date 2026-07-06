@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from adb import root_detection
 
 
@@ -82,3 +84,48 @@ def test_check_magisk_detects_installed_app():
         result = root_detection.check_magisk("emulator-5554")
     assert result["app_installed"] is True
     assert "/data/adb/magisk" in result["artifacts"]
+
+
+def test_check_magisk_not_installed():
+    with patch("adb.root_detection.manager.shell") as mock_shell:
+        mock_shell.side_effect = [("", "not found", 1), ("", "", 0)]
+        result = root_detection.check_magisk("emulator-5554")
+    assert result == {"app_installed": False, "artifacts": []}
+
+
+def test_check_busybox_found_and_not_found():
+    with patch("adb.root_detection.manager.shell", return_value=("/system/xbin/busybox\n", "", 0)):
+        assert root_detection.check_busybox("emulator-5554") == "/system/xbin/busybox"
+    with patch("adb.root_detection.manager.shell", return_value=("", "not found", 1)):
+        assert root_detection.check_busybox("emulator-5554") is None
+    with patch("adb.root_detection.manager.shell", return_value=("", "", 0)):
+        assert root_detection.check_busybox("emulator-5554") is None
+
+
+def test_summarize_busybox_only_is_weak_signal():
+    indicators = {"working_root_shell": False, "su_paths": [], "busybox": "/system/xbin/busybox",
+                  "magisk": {"app_installed": False, "artifacts": []}, "build_integrity": {}}
+    result = root_detection.summarize(indicators)
+    assert result["verdict"] == "possibly modified"
+    assert any("busybox present" in m for m in result["matched_indicators"])
+
+
+def test_get_integrity_report_orchestrates_all_checks():
+    with patch("adb.root_detection.manager.validate_serial", return_value="s1"), \
+         patch("adb.root_detection.check_su_paths", return_value=["/system/xbin/su"]) as m1, \
+         patch("adb.root_detection.check_magisk", return_value={"app_installed": False, "artifacts": []}) as m2, \
+         patch("adb.root_detection.check_busybox", return_value=None) as m3, \
+         patch("adb.root_detection.check_build_integrity", return_value={}) as m4, \
+         patch("adb.root_detection.manager.has_root_shell", return_value=False) as m5:
+        report = root_detection.get_integrity_report("s1")
+    assert report["verdict"] == "likely rooted"
+    assert report["indicators"]["su_paths"] == ["/system/xbin/su"]
+    assert "Play Integrity" in report["disclaimer"]
+    for mock in (m1, m2, m3, m4, m5):
+        mock.assert_called_once_with("s1")
+
+
+def test_get_integrity_report_validates_serial_first():
+    with patch("adb.root_detection.manager.validate_serial", side_effect=root_detection.manager.AdbError("bad serial")):
+        with pytest.raises(root_detection.manager.AdbError):
+            root_detection.get_integrity_report("; rm -rf /")
