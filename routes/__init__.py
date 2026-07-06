@@ -1,4 +1,5 @@
 from . import app_inspector  # noqa: F401
+from . import automation  # noqa: F401
 from . import core  # noqa: F401
 from . import devices  # noqa: F401
 from . import files  # noqa: F401
@@ -17,3 +18,4 @@ def register_blueprints(app):
     app.register_blueprint(app_inspector.bp)
     app.register_blueprint(logcat.bp)
     app.register_blueprint(screen.bp)
+    app.register_blueprint(automation.bp)
