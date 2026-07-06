@@ -1,5 +1,9 @@
-from adb.properties import _categorize, get_properties
 from unittest.mock import patch
+
+import pytest
+
+from adb import manager
+from adb.properties import _categorize, get_properties
 
 
 def test_categorize_specific_before_general():
@@ -25,3 +29,24 @@ def test_get_properties_parses_bracketed_lines():
     assert result["total"] == 2
     product_keys = {e["key"] for e in result["categories"]["Product"]}
     assert "ro.product.model" in product_keys
+
+
+def test_get_properties_skips_unbracketed_lines():
+    sample = "[ro.product.model]: [Pixel 5]\nsome unrelated non-bracketed line\n"
+    with patch("adb.properties.manager.shell", return_value=(sample, "", 0)):
+        result = get_properties("emulator-5554")
+    assert result["total"] == 1
+
+
+def test_get_properties_raises_on_shell_failure():
+    with patch("adb.properties.manager.shell", return_value=("", "err", 1)):
+        with pytest.raises(manager.AdbError, match="getprop failed"):
+            get_properties("emulator-5554")
+
+
+def test_get_properties_sorts_entries_within_category():
+    sample = "[ro.product.model]: [Pixel 5]\n[ro.product.brand]: [google]\n"
+    with patch("adb.properties.manager.shell", return_value=(sample, "", 0)):
+        result = get_properties("emulator-5554")
+    keys = [e["key"] for e in result["categories"]["Product"]]
+    assert keys == sorted(keys)

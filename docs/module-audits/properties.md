@@ -2,7 +2,7 @@
 
 Files: `adb/properties.py`, `routes/properties.py`, `static/js/properties.js`
 
-Coverage: backend 92%, route 53%.
+Coverage: backend 100% (was 92%), route 100% (was 53%).
 
 ## Implementation
 
@@ -12,14 +12,14 @@ Coverage: backend 92%, route 53%.
 ## Verified
 
 - Category precedence is covered.
-- Bracketed `getprop` line parsing is covered.
+- Bracketed `getprop` line parsing is covered, including skipping non-bracketed lines and sorting entries within a category.
+- `get_properties()` is covered for the shell-failure -> `AdbError` path.
+- Route is covered for success, `AdbNotInstalledError` -> 503, `AdbError` -> 400, and login-required 401.
 
 ## Gaps And Risks
 
-- Route error mapping is not directly covered.
-- Non-bracketed or OEM-specific lines are skipped silently, which is acceptable for a property viewer but should remain documented as best-effort.
+- Non-bracketed or OEM-specific lines are skipped silently, which is acceptable for a property viewer and remains documented as best-effort.
 
 ## Recommended Tests
 
-- Flask client tests for successful property response and `AdbNotInstalledError`/`AdbError` mapping.
-- Parser fixture for duplicate categories and unusual empty values.
+- None outstanding for this module's Python surface.

@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 302 tests passed, total coverage 82%, as of the automation pass. Real bugs found and fixed so far: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`; `routes/backup.py` and `routes/jobs.py` still need the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, and unvalidated `int()` parsing in screen and automation routes could turn a bad request into a 500 instead of a 400.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 309 tests passed, total coverage 82%, as of the properties pass (no code bugs found in that module, test-coverage only). Real bugs found and fixed in earlier passes: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`; `routes/backup.py` and `routes/jobs.py` still need the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, and unvalidated `int()` parsing in screen and automation routes could turn a bad request into a 500 instead of a 400.
 
 ## Coverage Summary
 
@@ -32,7 +32,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Logcat | 94% | routes/logcat 100% |
 | Screen | 100% | routes/screen 97% |
 | Automation | 100% | routes/automation 98% |
-| Properties | 92% | routes/properties 53% |
+| Properties | 100% | routes/properties 100% |
 | Network and wireless | network 21%, wireless 27% | routes/network 53% |
 | Backup | 19% | routes/backup 30% |
 | Battery and hardware | 15% | routes/battery 51% |
