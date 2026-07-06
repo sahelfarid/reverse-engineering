@@ -23,6 +23,7 @@
       <li data-tab="clipboard">Clipboard</li>
       <li data-tab="media">Media</li>
       <li data-tab="processes">Processes</li>
+      <li data-tab="frida">Frida</li>
       <li data-tab="settings">Settings</li>
     </ul>
     <button id="theme-toggle" class="ghost-btn">Toggle theme</button>
@@ -56,6 +57,7 @@
     <section id="tab-clipboard" class="tab-pane"></section>
     <section id="tab-media" class="tab-pane"></section>
     <section id="tab-processes" class="tab-pane"></section>
+    <section id="tab-frida" class="tab-pane"></section>
     <section id="tab-settings" class="tab-pane"></section>
   </main>
 </div>
@@ -75,5 +77,6 @@
 <script src="{{ url_for('static', filename='js/backup.js') }}"></script>
 <script src="{{ url_for('static', filename='js/battery.js') }}"></script>
 <script src="{{ url_for('static', filename='js/processes.js') }}"></script>
+<script src="{{ url_for('static', filename='js/frida.js') }}"></script>
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
 {% endblock %}
