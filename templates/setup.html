@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Set Up — ADB Device Manager{% endblock %}
+{% block body %}
+<div class="login-screen">
+  <form id="setup-form" class="login-card" autocomplete="off">
+    <h1>ADB Device Manager</h1>
+    <p class="muted">First launch. Set a login password, or skip to use the panel without one.</p>
+    <input type="password" id="setup-password" name="password" placeholder="Password (optional, min 6 chars)" autofocus>
+    <input type="password" id="setup-password-confirm" name="password_confirm" placeholder="Confirm password">
+    <label class="muted" style="display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" id="setup-remember"> Remember me on this device
+    </label>
+    <button type="submit">Set Password &amp; Continue</button>
+    <button type="button" id="setup-skip-btn" style="background:transparent; color:var(--muted); border:1px solid var(--border);">Skip for now</button>
+    <p id="setup-error" class="error-text" hidden></p>
+  </form>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+async function submitSetup(password) {
+  const errEl = document.getElementById('setup-error');
+  errEl.hidden = true;
+  const remember = document.getElementById('setup-remember').checked;
+  try {
+    const res = await fetch('/api/auth/setup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password, remember}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.href = '/';
+    } else {
+      errEl.textContent = data.error === 'password_too_short'
+        ? 'Password must be at least 6 characters (or leave both fields blank to skip).'
+        : `Setup failed: ${data.error}`;
+      errEl.hidden = false;
+    }
+  } catch (err) {
+    errEl.textContent = 'Setup failed: ' + err;
+    errEl.hidden = false;
+  }
+}
+
+document.getElementById('setup-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const password = document.getElementById('setup-password').value;
+  const confirm = document.getElementById('setup-password-confirm').value;
+  const errEl = document.getElementById('setup-error');
+  errEl.hidden = true;
+  if (!password) { submitSetup(null); return; }
+  if (password.length < 6) {
+    errEl.textContent = 'Password must be at least 6 characters (or leave both fields blank to skip).';
+    errEl.hidden = false;
+    return;
+  }
+  if (password !== confirm) {
+    errEl.textContent = 'Passwords do not match.';
+    errEl.hidden = false;
+    return;
+  }
+  submitSetup(password);
+});
+
+document.getElementById('setup-skip-btn').addEventListener('click', () => submitSetup(null));
+</script>
+{% endblock %}

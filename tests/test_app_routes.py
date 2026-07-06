@@ -49,6 +49,17 @@ def test_login_accepts_correct_password_and_gates_devices_on_adb(client):
     assert devices_res.status_code in (200, 503)
 
 
+def test_logout_clears_session_and_locks_out_subsequent_requests(client):
+    client.post("/api/auth/login", data=json.dumps({"password": TEST_PASSWORD}), content_type="application/json")
+    assert client.get("/api/devices").status_code in (200, 503)
+
+    res = client.post("/api/auth/logout")
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is True
+
+    assert client.get("/api/devices").status_code == 401
+
+
 def test_mutating_request_without_csrf_token_is_rejected(client):
     client.post("/api/auth/login", data=json.dumps({"password": TEST_PASSWORD}), content_type="application/json")
     res = client.post("/api/adb/install")

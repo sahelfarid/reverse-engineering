@@ -9,21 +9,24 @@ import secrets
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import jsonify, request, session
+from flask import current_app, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
 
 
-def ensure_password() -> str | None:
-    """Generate+store a random password on first run. Returns the plaintext only when newly created."""
+def has_password() -> bool:
+    return bool(config.load_settings().get("password_hash"))
+
+
+def is_setup_complete() -> bool:
+    """Whether the first-launch setup screen has been handled.
+
+    Also true for any install that already has a password_hash from before
+    this flag existed, so upgrading never re-shows the setup screen.
+    """
     settings = config.load_settings()
-    if settings.get("password_hash"):
-        return None
-    plaintext = secrets.token_urlsafe(9)
-    settings["password_hash"] = generate_password_hash(plaintext)
-    config.save_settings(settings)
-    return plaintext
+    return bool(settings.get("auth_setup_complete")) or bool(settings.get("password_hash"))
 
 
 def verify_password(candidate: str) -> bool:
@@ -35,12 +38,52 @@ def verify_password(candidate: str) -> bool:
 
 
 def is_authenticated() -> bool:
+    if is_setup_complete() and not has_password():
+        return True  # password was explicitly skipped during setup -- open access by design
     return bool(session.get("authenticated"))
 
 
-def login_session() -> None:
+def login_session(remember: bool = False) -> None:
+    session.permanent = remember
     session["authenticated"] = True
     session["csrf_token"] = secrets.token_hex(16)
+
+
+def ensure_csrf_token() -> str:
+    """Make sure the current session has a CSRF token, issuing one if not.
+
+    Needed for the open-access (no password set) case: `login_session()` --
+    which normally issues the token -- is never called there, but mutating
+    routes still go through `csrf_protect`.
+    """
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(16)
+    return session["csrf_token"]
+
+
+def complete_setup(password: str | None, remember: bool = False) -> None:
+    """Handle the first-launch setup screen: optionally set a password, mark
+    setup complete either way, and log the caller straight in."""
+    settings = config.load_settings()
+    if password:
+        settings["password_hash"] = generate_password_hash(password)
+    settings["auth_setup_complete"] = True
+    config.save_settings(settings)
+    login_session(remember=remember)
+
+
+def reset_password() -> None:
+    """Forgot-password recovery: clear the password and rotate the
+    session-signing key, which immediately invalidates every outstanding
+    session/remember-me cookie everywhere (not just the caller's browser) --
+    Flask's cookie-based sessions are only as valid as their signature.
+    Leaves auth_setup_complete false so the setup screen is shown again."""
+    settings = config.load_settings()
+    settings["password_hash"] = None
+    settings["auth_setup_complete"] = False
+    config.save_settings(settings)
+    current_app.secret_key = config.regenerate_secret_key()
+    session.clear()
 
 
 def logout_session() -> None:

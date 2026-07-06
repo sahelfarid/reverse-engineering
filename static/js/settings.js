@@ -12,7 +12,7 @@ function renderSettingsTab() {
       </div>
       <div class="card">
         <h4>Change password</h4>
-        <input type="password" id="settings-current-password" placeholder="Current password" style="width:100%; margin-bottom:6px;">
+        <input type="password" id="settings-current-password" placeholder="Current password (blank if none set yet)" style="width:100%; margin-bottom:6px;">
         <input type="password" id="settings-new-password" placeholder="New password (min 6 chars)" style="width:100%; margin-bottom:6px;">
         <button id="settings-change-password-btn">Change password</button>
       </div>
@@ -122,7 +122,7 @@ async function saveSettingsForm() {
 async function changePassword() {
   const current_password = document.getElementById('settings-current-password').value;
   const new_password = document.getElementById('settings-new-password').value;
-  if (!current_password || !new_password) return;
+  if (!new_password) return; // current_password may legitimately be blank if none is set yet
   const res = await apiFetch('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } });
   const data = await res.json();
   toast(data.ok ? 'Password changed' : `Failed: ${data.error}`, data.ok ? 'success' : 'error');

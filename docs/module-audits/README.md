@@ -57,7 +57,7 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 
 | Area | Backend coverage | Route/support coverage |
 | --- | ---: | ---: |
-| Core app/auth/config/desktop | app 55%, auth 68%, config 92%, desktop 78% | routes/core 90% |
+| Core app/auth/config/desktop | app 92%, auth 86%, config 92%, desktop 79% | routes/core 95% |
 | ADB manager | 83% | n/a |
 | Devices and dashboard | devices 89%, dashboard 98% | routes/devices 97% |
 | Shell | 100% | routes/shell 93% |
@@ -78,9 +78,11 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 | Root detection | 98% | routes/root_detection 100% |
 | Frida | 87% | routes/frida 97% |
 
-**Total: 527 Python tests passed, 6 skipped (real-device smoke tests, no device attached), 96% Python coverage** -- up from 525/97% at the previous checkpoint, 512/96% before that, 71/51% at the original audit. Every individual `adb/`/`routes/` module's coverage in the table above is unchanged or improved from the previous checkpoint; the aggregate dip to 96% is the skipped smoke-test bodies, not a product-code regression.
+**Total: 538 Python tests passed, 6 skipped (real-device smoke tests, no device attached), 97% Python coverage** -- up from 527/96% at the previous checkpoint, 525/97% before that, 512/96% before that, 71/51% at the original audit.
 
 **Frontend: 4 Vitest tests passing** (`npm install && npm test`), covering `static/js/shell.js`'s terminal rendering. Frontend coverage is not merged into the Python coverage number above. All other frontend JavaScript and template behavior remains unmeasured.
+
+**Feature added (2026-07-07, later same day): optional first-launch password, "remember me", and a self-service password reset.** Not an audit-gap closure -- a new capability, requested directly: the automatic random first-run password (previously printed to stdout) is replaced by an interactive setup screen where the user sets a password or explicitly skips it (open access, by design, on this loopback-only single-user tool); logins and setup both support "remember me" (a 30-day persistent session); and the login page's "Forgot password? Reset" link clears the password and rotates the Flask session-signing key, invalidating every remembered session everywhere. See [`docs/modules/core-auth-config-desktop.md`](../modules/core-auth-config-desktop.md) for the full behavior and known tradeoffs, and [`docs/module-audits/core-auth-config-desktop.md`](core-auth-config-desktop.md) for the implementation summary. Covered by the new `tests/test_auth_setup.py` plus a logout test in `tests/test_app_routes.py`.
 
 ## Module Documentation
 

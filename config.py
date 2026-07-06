@@ -73,6 +73,11 @@ DEFAULT_SETTINGS = {
     "download_dir": str(BASE_DIR / "downloads"),
     "theme": "dark",
     "password_hash": None,
+    # True once the first-launch setup screen has been completed (whether or
+    # not a password was actually set) -- distinct from password_hash so a
+    # user who deliberately skips setting a password isn't shown that screen
+    # again on every restart.
+    "auth_setup_complete": False,
 }
 
 
@@ -137,16 +142,16 @@ SETTINGS_VALIDATORS = {
 def validate_settings_patch(data: dict) -> tuple[dict, list[str]]:
     """Split an incoming settings patch into accepted and rejected keys.
 
-    `password_hash` is never accepted here -- it is only ever set by the
-    change-password flow. Unknown keys and out-of-schema/out-of-range values
-    are rejected rather than raising, so one bad field doesn't block the rest
-    of a settings save.
+    `password_hash` and `auth_setup_complete` are never accepted here -- they
+    are only ever set by the auth setup/change-password/reset flows. Unknown
+    keys and out-of-schema/out-of-range values are rejected rather than
+    raising, so one bad field doesn't block the rest of a settings save.
     """
     accepted = {}
     rejected = []
     for key, value in data.items():
         validator = SETTINGS_VALIDATORS.get(key)
-        if key == "password_hash" or validator is None or not validator(value):
+        if key in ("password_hash", "auth_setup_complete") or validator is None or not validator(value):
             rejected.append(key)
             continue
         accepted[key] = value
@@ -173,6 +178,17 @@ def generate_secret_key() -> str:
     key_path = DATA_DIR / "secret_key"
     if key_path.exists():
         return key_path.read_text(encoding="utf-8").strip()
+    key = secrets.token_hex(32)
+    key_path.write_text(key, encoding="utf-8")
+    return key
+
+
+def regenerate_secret_key() -> str:
+    """Force a fresh session-signing key, invalidating every outstanding
+    session/remember-me cookie everywhere (not just the caller's browser),
+    since Flask's cookie-based sessions are only as valid as their signature.
+    Used by the password-reset flow."""
+    key_path = DATA_DIR / "secret_key"
     key = secrets.token_hex(32)
     key_path.write_text(key, encoding="utf-8")
     return key

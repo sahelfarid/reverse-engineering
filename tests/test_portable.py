@@ -148,7 +148,6 @@ def test_main_returns_early_when_instance_already_running(monkeypatch, capsys):
 
 def test_main_opens_pywebview_window_with_expected_url(monkeypatch):
     monkeypatch.setattr(desktop, "read_lock", lambda: None)
-    monkeypatch.setattr(desktop.auth, "ensure_password", lambda: None)
     monkeypatch.setattr(desktop, "pick_free_port", lambda: 54321)
     monkeypatch.setattr(desktop.threading, "Thread", lambda target, args=(), daemon=None: MagicMock(start=lambda: None))
     monkeypatch.setattr(desktop, "wait_until_ready", lambda port: True)
@@ -168,7 +167,6 @@ def test_main_opens_pywebview_window_with_expected_url(monkeypatch):
 
 def test_main_falls_back_to_browser_when_pywebview_missing(monkeypatch):
     monkeypatch.setattr(desktop, "read_lock", lambda: None)
-    monkeypatch.setattr(desktop.auth, "ensure_password", lambda: None)
     monkeypatch.setattr(desktop, "pick_free_port", lambda: 54322)
     monkeypatch.setattr(desktop.threading, "Thread", lambda target, args=(), daemon=None: MagicMock(start=lambda: None))
     monkeypatch.setattr(desktop, "wait_until_ready", lambda port: True)

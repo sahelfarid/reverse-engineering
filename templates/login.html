@@ -4,10 +4,16 @@
 <div class="login-screen">
   <form id="login-form" class="login-card" autocomplete="off">
     <h1>ADB Device Manager</h1>
-    <p class="muted">Sign in with the panel password printed in the server console on first run.</p>
+    <p class="muted">Sign in with your panel password.</p>
     <input type="password" id="login-password" name="password" placeholder="Password" autofocus required>
+    <label class="muted" style="display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" id="login-remember"> Remember me on this device
+    </label>
     <button type="submit">Sign in</button>
     <p id="login-error" class="error-text" hidden></p>
+    <p class="muted" style="text-align:center; margin:0;">
+      <a href="#" id="login-reset-link">Forgot password? Reset</a>
+    </p>
   </form>
 </div>
 {% endblock %}
@@ -16,13 +22,14 @@
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const password = document.getElementById('login-password').value;
+  const remember = document.getElementById('login-remember').checked;
   const errEl = document.getElementById('login-error');
   errEl.hidden = true;
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({password}),
+      body: JSON.stringify({password, remember}),
     });
     const data = await res.json();
     if (data.ok) {
@@ -33,6 +40,35 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
   } catch (err) {
     errEl.textContent = 'Login failed: ' + err;
+    errEl.hidden = false;
+  }
+});
+
+document.getElementById('login-reset-link').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const sure = confirm(
+    'Reset the panel password?\n\nThis clears the current password and signs out every ' +
+    'device/browser that was signed in or remembered. You will set a new password (or skip) ' +
+    'on the next screen.'
+  );
+  if (!sure) return;
+  const errEl = document.getElementById('login-error');
+  errEl.hidden = true;
+  try {
+    const res = await fetch('/api/auth/reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.href = '/';
+    } else {
+      errEl.textContent = `Reset failed: ${data.error}`;
+      errEl.hidden = false;
+    }
+  } catch (err) {
+    errEl.textContent = 'Reset failed: ' + err;
     errEl.hidden = false;
   }
 });

@@ -17,7 +17,6 @@ import time
 import urllib.error
 import urllib.request
 
-import auth
 import config
 
 WINDOW_TITLE = "ADB Device Manager"
@@ -121,11 +120,9 @@ def main() -> int:
               f"port {existing['port']}). Open http://127.0.0.1:{existing['port']}/")
         return 0
 
-    plaintext_password = auth.ensure_password()
-    if plaintext_password:
-        print("First run: generated login password:", plaintext_password)
-        print("Stored hashed in the app-data settings; change it from Settings.")
-
+    # No first-run password is generated here anymore -- the first-launch
+    # setup screen (served by routes.core.index()) lets the user set one
+    # (or explicitly skip) from the browser instead of reading it off stdout.
     port = pick_free_port()
     threading.Thread(target=run_server, args=(port,), daemon=True).start()
 

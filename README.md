@@ -18,7 +18,7 @@ Linux/macOS:
 sh scripts/run.sh web
 ```
 
-The scripts default to a managed `.venv`, install dependencies, and start the web panel at `http://127.0.0.1:5000`. On first run, a random login password is printed once and stored hashed in `data/settings.json`.
+The scripts default to a managed `.venv`, install dependencies, and start the web panel at `http://127.0.0.1:5000`. On first run, the browser shows a setup screen to set a login password (optional -- you can skip it) with a "remember me" option; the password (if set) is stored hashed in `data/settings.json`. A "Forgot password? Reset" link on the login page clears the password (and every remembered session) after a confirmation prompt, if you need to start over.
 
 To use the active/system Python instead of `.venv`:
 
@@ -115,7 +115,7 @@ Mutating Frida routes require login and CSRF, and attach/script actions audit th
 
 All routes are `/api/...` and return JSON except file/image/zip downloads and SSE streams. Grouped by area:
 
-- **Auth/core**: login, logout, change-password, ADB status/install, settings, audit log.
+- **Auth/core**: first-launch setup, login, logout, change-password, password reset, ADB status/install, settings, audit log.
 - **Devices**: list, per-device detail, overview.
 - **Shell**: su-available, exec.
 - **Files**: browse, search, mkdir, delete, rename, move, copy, upload, download, folder download, preview.
@@ -134,7 +134,7 @@ All routes are `/api/...` and return JSON except file/image/zip downloads and SS
 
 ## Security Model
 
-- Every page requires login.
+- Every page requires login, unless a password was deliberately skipped on the first-launch setup screen (an explicit, reversible choice for solo local use -- add a password anytime from Settings, or the login page's "Forgot password? Reset" link clears everything and shows the setup screen again).
 - Every mutating request requires an `X-CSRF-Token` header. The frontend uses `apiFetch()` in `static/js/app.js` to attach it.
 - Privileged actions are appended to `data/audit.log` and visible from Settings.
 - ADB is invoked with argv lists. Dynamic values used inside `adb shell` commands are quoted before being passed as a single remote command string.

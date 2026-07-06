@@ -1,6 +1,7 @@
+from datetime import timedelta
+
 from flask import Flask
 
-import auth
 import config
 from routes import register_blueprints
 
@@ -16,6 +17,9 @@ def create_app() -> Flask:
         static_folder=str(config.STATIC_DIR),
     )
     app.secret_key = config.generate_secret_key()
+    # Only takes effect for sessions marked session.permanent = True (the
+    # "remember me" login option); a normal login stays a browser-session cookie.
+    app.permanent_session_lifetime = timedelta(days=30)
     register_blueprints(app)
     return app
 
@@ -24,14 +28,9 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    plaintext_password = auth.ensure_password()
-    if plaintext_password:
-        print("=" * 60)
-        print("First run: generated a login password for the ADB panel.")
-        print(f"  Password: {plaintext_password}")
-        print("It is stored (hashed) in data/settings.json — change it")
-        print("later from the Settings tab.")
-        print("=" * 60)
+    # No first-run password is generated here anymore -- the first-launch
+    # setup screen (served by routes.core.index()) lets the user set one
+    # (or explicitly skip) from the browser instead of reading it off stdout.
     # threaded=True: background jobs + SSE (logcat) streams need concurrent
     # requests, which the dev server won't serve otherwise.
     # Local developer tool only: it can run a root shell and read/write
