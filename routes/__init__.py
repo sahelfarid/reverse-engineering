@@ -1,6 +1,7 @@
 from . import app_inspector  # noqa: F401
 from . import automation  # noqa: F401
 from . import backup  # noqa: F401
+from . import battery  # noqa: F401
 from . import core  # noqa: F401
 from . import devices  # noqa: F401
 from . import files  # noqa: F401
@@ -25,3 +26,4 @@ def register_blueprints(app):
     app.register_blueprint(properties.bp)
     app.register_blueprint(network.bp)
     app.register_blueprint(backup.bp)
+    app.register_blueprint(battery.bp)
