@@ -121,32 +121,74 @@ function renderWirelessTab() {
   const serial = getSelectedSerial();
   const device = getSelectedDevice();
   pane.innerHTML = `
-    <div class="card-grid">
-      <div class="card">
-        <h4>Enable wireless debugging (USB device)</h4>
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <input type="number" id="wireless-port" value="5555" style="width:80px;">
-          <button id="wireless-enable-btn" ${!device || device.state !== 'device' ? 'disabled' : ''}>Enable tcpip</button>
-        </div>
-        <div id="wireless-address-info" class="muted"></div>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Wireless debugging</h2>
+        <p class="muted">Switch a USB-connected device to adb-over-Wi-Fi, connect to devices by address, and manage saved endpoints.</p>
       </div>
-      <div class="card">
-        <h4>Connect / disconnect</h4>
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <input type="text" id="wireless-address" placeholder="192.168.1.50:5555" style="flex:1;">
-          <button id="wireless-connect-btn">Connect</button>
-          <button id="wireless-disconnect-btn">Disconnect</button>
-        </div>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h4>Known devices</h4>
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <input type="text" id="wireless-known-name" placeholder="Name" style="width:140px;">
-          <input type="text" id="wireless-known-address" placeholder="192.168.1.50:5555" style="flex:1;">
-          <button id="wireless-known-save-btn">Save</button>
-          <button id="wireless-reconnect-all-btn">Reconnect all</button>
-        </div>
-        <div id="wireless-known-list"></div>
+      <div class="panel-grid wireless-grid">
+        <section class="panel-section wireless-enable">
+          <div class="section-head">
+            <div>
+              <h3>Enable on USB device</h3>
+              <p class="section-desc">Switches the currently selected USB device into tcpip mode on the given port.</p>
+            </div>
+          </div>
+          <div class="field-grid single-col">
+            <div class="field">
+              <label for="wireless-port">Port</label>
+              <input type="number" id="wireless-port" value="5555">
+              <span class="field-hint">Default adb-over-Wi-Fi port is 5555.</span>
+            </div>
+          </div>
+          <div id="wireless-address-info" class="muted" style="margin-top:10px;"></div>
+          <div class="section-actions">
+            <button id="wireless-enable-btn" class="primary-btn" ${!device || device.state !== 'device' ? 'disabled' : ''}>Enable tcpip</button>
+          </div>
+        </section>
+
+        <section class="panel-section wireless-connect">
+          <div class="section-head">
+            <div>
+              <h3>Connect / disconnect</h3>
+              <p class="section-desc">Connect to a device already in tcpip mode, by IP:port.</p>
+            </div>
+          </div>
+          <div class="field-grid single-col">
+            <div class="field">
+              <label for="wireless-address">Address</label>
+              <input type="text" id="wireless-address" placeholder="192.168.1.50:5555">
+            </div>
+          </div>
+          <div class="section-actions">
+            <button id="wireless-disconnect-btn">Disconnect</button>
+            <button id="wireless-connect-btn" class="primary-btn">Connect</button>
+          </div>
+        </section>
+
+        <section class="panel-section wireless-known">
+          <div class="section-head">
+            <div>
+              <h3>Known devices</h3>
+              <p class="section-desc">Saved name/address pairs for devices you connect to repeatedly.</p>
+            </div>
+            <button id="wireless-reconnect-all-btn" class="ghost-btn small">Reconnect all</button>
+          </div>
+          <div class="field-grid">
+            <div class="field">
+              <label for="wireless-known-name">Name</label>
+              <input type="text" id="wireless-known-name" placeholder="e.g. pixel-test">
+            </div>
+            <div class="field">
+              <label for="wireless-known-address">Address</label>
+              <input type="text" id="wireless-known-address" placeholder="192.168.1.50:5555">
+            </div>
+          </div>
+          <div class="section-actions justify-start">
+            <button id="wireless-known-save-btn" class="primary-btn">Save device</button>
+          </div>
+          <div id="wireless-known-list" style="margin-top:12px;"></div>
+        </section>
       </div>
     </div>
   `;
@@ -209,11 +251,16 @@ async function loadKnownDevices() {
   const res = await apiFetch('/api/wireless/known');
   const data = await res.json();
   const entries = Object.entries(data.devices || {});
-  list.innerHTML = entries.length ? entries.map(([name, addr]) => `
-    <div style="display:flex; gap:8px; align-items:center;">
-      <div style="flex:1;">${escapeHtml(name)} — ${escapeHtml(addr)}</div>
-      <button data-name="${escapeHtml(name)}" class="known-delete-btn">Delete</button>
-    </div>`).join('') : '<div class="muted">No known devices saved</div>';
+  if (!entries.length) { list.innerHTML = '<div class="muted">No known devices saved</div>'; return; }
+  list.innerHTML = `<div class="table-wrap auto-height"><table>
+    <thead><tr><th>Name</th><th>Address</th><th></th></tr></thead>
+    <tbody>${entries.map(([name, addr]) => `
+      <tr>
+        <td>${escapeHtml(name)}</td>
+        <td class="mono-input">${escapeHtml(addr)}</td>
+        <td><button data-name="${escapeHtml(name)}" class="known-delete-btn">Delete</button></td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
   list.querySelectorAll('.known-delete-btn').forEach((btn) => btn.addEventListener('click', async () => {
     await apiFetch(`/api/wireless/known/${encodeURIComponent(btn.dataset.name)}`, { method: 'DELETE' });
     loadKnownDevices();

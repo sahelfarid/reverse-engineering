@@ -73,14 +73,23 @@ function renderDevicesTab() {
       <td>${d.is_wireless ? 'Wi-Fi' : 'USB'}</td>
     </tr>`).join('');
   pane.innerHTML = `
-    <div class="card">
-      <h3>Connected devices</h3>
-      <table>
-        <thead><tr><th>Serial</th><th>State</th><th>Model</th><th>Product</th><th>Transport</th><th>Link</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <div class="panel-page">
+      <section class="panel-section">
+        <div class="section-head">
+          <div>
+            <h3>Connected devices</h3>
+            <p class="section-desc">USB and Wi-Fi debugging targets currently visible to adb.</p>
+          </div>
+        </div>
+        <div class="table-wrap auto-height">
+          <table>
+            <thead><tr><th>Serial</th><th>State</th><th>Model</th><th>Product</th><th>Transport</th><th>Link</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>
+      <section id="device-detail-card" class="panel-section">Loading device details…</section>
     </div>
-    <div id="device-detail-card" class="card">Loading device details…</div>
   `;
   loadDeviceDetail();
 }
@@ -108,15 +117,22 @@ async function loadDeviceDetail() {
       <tr><td>${escapeHtml(v.mounted_on)}</td><td>${escapeHtml(v.use_pct)}</td><td>${escapeHtml(v.available_kb)} KB free</td></tr>
     `).join('');
     card.innerHTML = `
-      <h3>${escapeHtml(p.model || serial)}</h3>
-      <div class="card-grid">
-        <div><div class="muted">Manufacturer</div>${escapeHtml(p.manufacturer || '—')}</div>
-        <div><div class="muted">Android version</div>${escapeHtml(p.android_version || '—')} (SDK ${escapeHtml(p.sdk_version || '—')})</div>
-        <div><div class="muted">ABI</div>${escapeHtml(p.abi || '—')}</div>
-        <div><div class="muted">Battery</div>${b.level != null ? b.level + '%' : '—'} ${b.charging ? '(charging)' : ''}</div>
-        <div><div class="muted">Root</div>${data.device.root_available ? '<span class="badge green">available</span>' : '<span class="badge red">unavailable</span>'}</div>
+      <div class="section-head">
+        <div>
+          <h3>${escapeHtml(p.model || serial)}</h3>
+          <p class="section-desc">${escapeHtml(serial)}${data.device.is_wireless ? ' · Wi-Fi' : ' · USB'}</p>
+        </div>
       </div>
-      <table><thead><tr><th>Mount</th><th>Used</th><th>Free</th></tr></thead><tbody>${volumes}</tbody></table>
+      <div class="card-grid">
+        ${statTileHtml('Manufacturer', escapeHtml(p.manufacturer || '—'))}
+        ${statTileHtml('Android version', `${escapeHtml(p.android_version || '—')}`, `SDK ${escapeHtml(p.sdk_version || '—')}`)}
+        ${statTileHtml('ABI', escapeHtml(p.abi || '—'))}
+        ${statTileHtml('Battery', b.level != null ? b.level + '%' : '—', b.charging ? 'Charging' : '')}
+        ${statTileHtml('Root', data.device.root_available ? '<span class="badge green">available</span>' : '<span class="badge red">unavailable</span>')}
+      </div>
+      <div class="table-wrap auto-height">
+        <table><thead><tr><th>Mount</th><th>Used</th><th>Free</th></tr></thead><tbody>${volumes}</tbody></table>
+      </div>
     `;
   } catch (err) {
     card.innerHTML = `<div class="alert error">Failed to load device details: ${escapeHtml(String(err))}</div>`;

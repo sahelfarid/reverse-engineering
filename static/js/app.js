@@ -33,6 +33,10 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function statTileHtml(title, value, sub) {
+  return `<div class="card"><div class="muted">${escapeHtml(title)}</div><h2>${value}</h2>${sub ? `<div class="muted">${sub}</div>` : ''}</div>`;
+}
+
 function formatBytes(bytes) {
   if (bytes == null || isNaN(bytes)) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -47,7 +51,7 @@ const TAB_CHANGE_LISTENERS = [];
 function onTabChange(fn) { TAB_CHANGE_LISTENERS.push(fn); }
 
 function initTabs() {
-  const items = document.querySelectorAll('.nav-tabs li');
+  const items = document.querySelectorAll('.nav-tabs li[data-tab]');
   items.forEach((li) => {
     li.addEventListener('click', () => {
       const tab = li.dataset.tab;
@@ -75,11 +79,19 @@ function currentTab() {
 
 // Nav items marked data-requires-device only make sense against a connected,
 // authorized device -- hide them otherwise instead of leaving a click target
-// whose pane will just say "select a device".
+// whose pane will just say "select a device". Group labels above a
+// now-empty group are hidden along with it so the sidebar never shows an
+// orphaned heading with nothing underneath.
 function updateNavDeviceGating(_serial, device) {
   const hasDevice = !!(device && device.state === 'device');
   document.querySelectorAll('.nav-tabs li[data-requires-device]').forEach((li) => {
-    li.style.display = hasDevice ? '' : 'none';
+    li.style.display = hasDevice ? 'list-item' : 'none';
+  });
+  document.querySelectorAll('.nav-group-label').forEach((label) => {
+    const group = label.dataset.group;
+    const anyVisible = Array.from(document.querySelectorAll(`.nav-tabs li[data-tab][data-group="${group}"]`))
+      .some((li) => !li.hasAttribute('data-requires-device') || hasDevice);
+    label.style.display = anyVisible ? '' : 'none';
   });
   if (!hasDevice) {
     const active = document.querySelector('.nav-tabs li.active');
@@ -186,6 +198,39 @@ async function installApktool() {
   }
 }
 
+async function refreshJadxToolStatus() {
+  const card = document.getElementById('jadx-status-card');
+  if (!card) return null;
+  try {
+    const res = await apiFetch('/api/jadx/status');
+    const status = await res.json();
+    renderJadxToolStatus(status);
+    return status;
+  } catch (err) {
+    card.innerHTML = `<span class="badge red">JADX error</span>`;
+    return null;
+  }
+}
+
+function renderJadxToolStatus(status) {
+  const card = document.getElementById('jadx-status-card');
+  if (!card) return;
+  const javaOk = status.java && status.java.installed;
+  const jadxOk = status.jadx && status.jadx.installed;
+  if (!javaOk) {
+    card.innerHTML = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
+    return;
+  }
+  if (jadxOk) {
+    card.innerHTML = `<span class="badge green">JADX installed</span> v${escapeHtml(status.jadx.version || status.jadx.pinned_version || '')}`;
+    return;
+  }
+  card.innerHTML = `<span class="badge red">JADX missing</span> <button id="install-jadx-btn">Install JADX</button>`;
+  document.getElementById('install-jadx-btn').addEventListener('click', () => {
+    if (typeof installJadx === 'function') installJadx();
+  });
+}
+
 async function refreshFridaToolStatus() {
   const card = document.getElementById('frida-tool-status-card');
   if (!card) return null;
@@ -281,7 +326,7 @@ function initKeyboardShortcuts() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     if (e.key >= '1' && e.key <= '9') {
-      const items = document.querySelectorAll('.nav-tabs li');
+      const items = document.querySelectorAll('.nav-tabs li[data-tab]');
       const idx = parseInt(e.key, 10) - 1;
       if (items[idx]) items[idx].click();
       return;
@@ -309,6 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initKeyboardShortcuts();
   refreshAdbStatus();
   refreshApktoolStatus();
+  refreshJadxToolStatus();
   refreshFridaToolStatus();
   if (typeof onDeviceChange === 'function') {
     onDeviceChange(updateNavDeviceGating);

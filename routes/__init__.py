@@ -7,6 +7,7 @@ from . import core  # noqa: F401
 from . import devices  # noqa: F401
 from . import files  # noqa: F401
 from . import frida  # noqa: F401
+from . import jadx  # noqa: F401
 from . import jobs  # noqa: F401
 from . import logcat  # noqa: F401
 from . import network  # noqa: F401
@@ -25,6 +26,7 @@ def register_blueprints(app):
     app.register_blueprint(files.bp)
     app.register_blueprint(frida.bp)
     app.register_blueprint(apktool.bp)
+    app.register_blueprint(jadx.bp)
     app.register_blueprint(packages.bp)
     app.register_blueprint(app_inspector.bp)
     app.register_blueprint(logcat.bp)
