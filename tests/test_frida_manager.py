@@ -1,7 +1,10 @@
+import lzma
 import sys
 import types
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 import config
 from adb import frida_manager
@@ -118,3 +121,255 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
     assert session_id not in frida_manager._sessions
     assert fake_device.session.script.unloaded is True
     assert fake_device.session.detached is True
+
+
+def _fake_streaming_response(body: bytes):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.iter_content = MagicMock(return_value=[body])
+    resp.__enter__ = MagicMock(return_value=resp)
+    resp.__exit__ = MagicMock(return_value=False)
+    return resp
+
+
+def test_ensure_frida_server_downloads_decompresses_and_cleans_up(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VENDOR_DIR", tmp_path)
+    compressed = lzma.compress(b"binary-content")
+    with patch("adb.frida_manager._frida_version", return_value="16.2.1"), \
+         patch("adb.frida_manager.devices.get_basic_properties", return_value={"abi": "arm64-v8a"}), \
+         patch("adb.frida_manager.requests.get", return_value=_fake_streaming_response(compressed)):
+        path = frida_manager.ensure_frida_server("s1")
+    assert path.read_bytes() == b"binary-content"
+    assert not path.with_suffix(".xz").exists()
+
+
+def test_ensure_frida_server_returns_cached_without_downloading(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VENDOR_DIR", tmp_path)
+    dest = tmp_path / "frida" / "16.2.1" / "arm64" / "frida-server"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"already-cached")
+    with patch("adb.frida_manager._frida_version", return_value="16.2.1"), \
+         patch("adb.frida_manager.devices.get_basic_properties", return_value={"abi": "arm64-v8a"}), \
+         patch("adb.frida_manager.requests.get") as mock_get:
+        path = frida_manager.ensure_frida_server("s1")
+    assert path == dest
+    mock_get.assert_not_called()
+
+
+def test_ensure_frida_server_raises_when_frida_package_missing():
+    with patch("adb.frida_manager._frida_version", return_value=None):
+        with pytest.raises(manager.AdbError, match="frida package not installed"):
+            frida_manager.ensure_frida_server("s1")
+
+
+def test_ensure_frida_server_raises_and_cleans_up_on_download_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VENDOR_DIR", tmp_path)
+    with patch("adb.frida_manager._frida_version", return_value="16.2.1"), \
+         patch("adb.frida_manager.devices.get_basic_properties", return_value={"abi": "arm64-v8a"}), \
+         patch("adb.frida_manager.requests.get", side_effect=requests.RequestException("network down")):
+        with pytest.raises(manager.AdbError, match="Failed to download frida-server"):
+            frida_manager.ensure_frida_server("s1")
+    compressed_path = tmp_path / "frida" / "16.2.1" / "arm64" / "frida-server.xz"
+    assert not compressed_path.exists()
+
+
+def test_push_server_requires_root():
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=False):
+        with pytest.raises(manager.AdbError, match="rooted"):
+            frida_manager.push_server("s1")
+
+
+def test_push_server_success(tmp_path):
+    local_server = tmp_path / "frida-server"
+    local_server.write_bytes(b"binary")
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager.ensure_frida_server", return_value=local_server), \
+         patch("adb.frida_manager.manager.run", return_value=MagicMock(returncode=0, stderr="")), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "", 0)) as mock_shell:
+        result = frida_manager.push_server("s1")
+    assert result == {"ok": True, "remote_path": frida_manager.FRIDA_SERVER_REMOTE}
+    assert "chmod 755" in mock_shell.call_args[0][1]
+
+
+def test_push_server_raises_on_push_failure(tmp_path):
+    local_server = tmp_path / "frida-server"
+    local_server.write_bytes(b"binary")
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager.ensure_frida_server", return_value=local_server), \
+         patch("adb.frida_manager.manager.run", return_value=MagicMock(returncode=1, stderr="push failed")):
+        with pytest.raises(manager.AdbError, match="push failed"):
+            frida_manager.push_server("s1")
+
+
+def test_start_server_pushes_if_needed_and_starts():
+    frida_manager._server_pids.clear()
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager._is_pushed", return_value=False), \
+         patch("adb.frida_manager.push_server", return_value={"ok": True}) as mock_push, \
+         patch("adb.frida_manager._running_pid", side_effect=[None, "4321"]), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "", 0)), \
+         patch("adb.frida_manager.time.sleep"):
+        result = frida_manager.start_server("s1")
+    assert result == {"ok": True, "pid": "4321"}
+    mock_push.assert_called_once_with("s1")
+    assert frida_manager._server_pids["s1"] == "4321"
+
+
+def test_start_server_already_running_short_circuits():
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager._running_pid", return_value="999"):
+        result = frida_manager.start_server("s1")
+    assert result == {"ok": True, "pid": "999", "already_running": True}
+
+
+def test_start_server_raises_when_start_command_fails():
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager._running_pid", return_value=None), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "permission denied", 1)):
+        with pytest.raises(manager.AdbError, match="permission denied"):
+            frida_manager.start_server("s1")
+
+
+def test_start_server_raises_when_no_pid_reported():
+    with patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager._running_pid", return_value=None), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "", 0)), \
+         patch("adb.frida_manager.time.sleep"):
+        with pytest.raises(manager.AdbError, match="did not report a running pid"):
+            frida_manager.start_server("s1")
+
+
+def test_push_and_start_server_composes_both():
+    with patch("adb.frida_manager.push_server", return_value={"ok": True, "remote_path": "x"}) as mock_push, \
+         patch("adb.frida_manager.start_server", return_value={"ok": True, "pid": "123"}) as mock_start:
+        result = frida_manager.push_and_start_server("s1")
+    assert result == {"ok": True, "push": {"ok": True, "remote_path": "x"}, "pid": "123"}
+    mock_push.assert_called_once_with("s1")
+    mock_start.assert_called_once_with("s1")
+
+
+def test_stop_server_not_running():
+    with patch("adb.frida_manager._running_pid", return_value=None):
+        assert frida_manager.stop_server("s1") == {"ok": True, "stopped": False}
+
+
+def test_stop_server_success():
+    frida_manager._server_pids["s1"] = "555"
+    with patch("adb.frida_manager._running_pid", return_value="555"), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "", 0)) as mock_shell:
+        result = frida_manager.stop_server("s1")
+    assert result == {"ok": True, "stopped": True, "pid": "555"}
+    assert "s1" not in frida_manager._server_pids
+    assert mock_shell.call_count == 2  # kill, then rm pid file
+
+
+def test_stop_server_raises_on_kill_failure_using_stderr():
+    with patch("adb.frida_manager._running_pid", return_value="555"), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "operation not permitted", 1)):
+        with pytest.raises(manager.AdbError, match="operation not permitted"):
+            frida_manager.stop_server("s1")
+
+
+def test_stop_server_raises_generic_message_when_stderr_empty():
+    with patch("adb.frida_manager._running_pid", return_value="555"), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "", 1)):
+        with pytest.raises(manager.AdbError, match="failed to stop pid 555"):
+            frida_manager.stop_server("s1")
+
+
+def test_get_status_aggregates_devices():
+    with patch("adb.frida_manager._frida_version", return_value="16.2.1"), \
+         patch("adb.frida_manager.devices.list_devices", return_value=[
+             {"serial": "s1", "state": "device"}, {"serial": "s2", "state": "unauthorized"},
+         ]), \
+         patch("adb.frida_manager.devices.get_basic_properties", return_value={"abi": "arm64-v8a"}), \
+         patch("adb.frida_manager._server_path") as mock_server_path, \
+         patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
+         patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager._running_pid", return_value="123"):
+        mock_server_path.return_value.is_file.return_value = True
+        result = frida_manager.get_status()
+    assert result["python_installed"] is True
+    assert len(result["devices"]) == 1  # unauthorized device excluded
+    assert result["devices"][0]["serial"] == "s1"
+    assert result["devices"][0]["server_running"] is True
+
+
+def test_get_status_handles_list_devices_failure():
+    with patch("adb.frida_manager._frida_version", return_value=None), \
+         patch("adb.frida_manager.devices.list_devices", side_effect=manager.AdbError("no adb")):
+        result = frida_manager.get_status()
+    assert result["python_installed"] is False
+    assert result["devices"] == []
+
+
+def test_get_status_captures_per_device_errors():
+    with patch("adb.frida_manager._frida_version", return_value="16.2.1"), \
+         patch("adb.frida_manager.devices.list_devices", return_value=[{"serial": "s1", "state": "device"}]), \
+         patch("adb.frida_manager.devices.get_basic_properties", side_effect=manager.AdbError("device offline")):
+        result = frida_manager.get_status()
+    assert result["devices"] == [{"serial": "s1", "error": "device offline"}]
+
+
+def test_list_processes_uses_frida_device_when_available(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid, name):
+            self.pid = pid
+            self.name = name
+
+    fake_device = types.SimpleNamespace(
+        enumerate_processes=lambda: [FakeProcess(2, "zeta"), FakeProcess(1, "alpha")]
+    )
+    with patch("adb.frida_manager._frida_device", return_value=fake_device):
+        result = frida_manager.list_processes("s1")
+    assert [p["name"] for p in result] == ["alpha", "zeta"]
+
+
+def test_list_processes_falls_back_to_adb_on_frida_failure():
+    with patch("adb.frida_manager._frida_device", side_effect=RuntimeError("no usb device")), \
+         patch("adb.frida_manager.process_manager.list_processes", return_value={"processes": [{"pid": 1, "name": "init"}]}):
+        result = frida_manager.list_processes("s1")
+    assert result == [{"pid": 1, "name": "init"}]
+
+
+def test_stream_messages_raises_for_unknown_session():
+    with pytest.raises(manager.AdbError, match="session not found"):
+        next(frida_manager.stream_messages("does-not-exist"))
+
+
+def test_stream_messages_yields_queued_message_then_heartbeat():
+    import queue as queue_module
+
+    class _FakeQueue:
+        """Avoids real blocking on the hardcoded 15s get(timeout=...) in
+        stream_messages() -- raises Empty immediately once drained."""
+        def __init__(self, items):
+            self._items = list(items)
+
+        def get(self, timeout=None):
+            if self._items:
+                return self._items.pop(0)
+            raise queue_module.Empty()
+
+    frida_manager._sessions.clear()
+    fake_queue = _FakeQueue([{"message": {"type": "send", "payload": "hi"}}])
+    frida_manager._sessions["sess1"] = {"queue": fake_queue}
+    gen = frida_manager.stream_messages("sess1")
+    first = next(gen)
+    assert first["message"]["payload"] == "hi"
+    second = next(gen)
+    assert second["message"]["type"] == "heartbeat"
+    gen.close()
+    frida_manager._sessions.clear()
+
+
+def test_script_hash_is_stable_sha256():
+    h1 = frida_manager.script_hash("console.log(1);")
+    h2 = frida_manager.script_hash("console.log(1);")
+    h3 = frida_manager.script_hash("console.log(2);")
+    assert h1 == h2
+    assert h1 != h3
+    assert len(h1) == 64
