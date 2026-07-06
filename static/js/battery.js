@@ -9,9 +9,60 @@ function renderBatteryTab() {
     pane.innerHTML = `<div class="alert warn">Select an authorized, online device.</div>`;
     return;
   }
-  pane.innerHTML = `<div id="hardware-body">Loading…</div><button id="hardware-refresh-btn">Refresh</button>`;
+  pane.innerHTML = `
+    <div id="hardware-body">Loading…</div>
+    <button id="hardware-refresh-btn">Refresh</button>
+    <h3 style="margin-top:24px;">Device integrity / root detection</h3>
+    <div id="integrity-body">Loading…</div>
+    <button id="integrity-refresh-btn">Re-check integrity</button>
+  `;
   document.getElementById('hardware-refresh-btn').addEventListener('click', () => loadHardware(serial));
+  document.getElementById('integrity-refresh-btn').addEventListener('click', () => loadIntegrity(serial));
   loadHardware(serial);
+  loadIntegrity(serial);
+}
+
+const INTEGRITY_VERDICT_CLASS = {
+  'rooted': 'red', 'likely rooted': 'red', 'possibly modified': 'yellow', 'not detected': 'green',
+};
+
+async function loadIntegrity(serial) {
+  const body = document.getElementById('integrity-body');
+  if (!body) return;
+  body.innerHTML = 'Checking…';
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/integrity`);
+    const data = await res.json();
+    if (!data.ok) { body.innerHTML = `<div class="alert error">${escapeHtml(data.error)}</div>`; return; }
+    const r = data.report;
+    const badgeClass = INTEGRITY_VERDICT_CLASS[r.verdict] || 'yellow';
+    const b = r.indicators.build_integrity;
+    const checkRow = (label, present, evidence) =>
+      `<tr><td>${escapeHtml(label)}</td><td>${present ? '<span class="badge red">✓ detected</span>' : '<span class="badge green">✗ clear</span>'}</td><td class="muted">${escapeHtml(evidence || '—')}</td></tr>`;
+    body.innerHTML = `
+      <div class="card">
+        <div style="font-size:1.1em; margin-bottom:8px;">Verdict: <span class="badge ${badgeClass}">${escapeHtml(r.verdict)}</span></div>
+        <table>
+          <thead><tr><th>Indicator</th><th>State</th><th>Evidence</th></tr></thead>
+          <tbody>
+            ${checkRow('Working root shell', r.indicators.working_root_shell, r.indicators.working_root_shell ? 'su -c id returned uid=0' : '')}
+            ${checkRow('su binaries on disk', r.indicators.su_paths.length > 0, r.indicators.su_paths.join(', '))}
+            ${checkRow('Magisk app installed', r.indicators.magisk.app_installed, r.indicators.magisk.app_installed ? 'com.topjohnwu.magisk' : '')}
+            ${checkRow('Magisk artifacts', r.indicators.magisk.artifacts.length > 0, r.indicators.magisk.artifacts.join(', '))}
+            ${checkRow('busybox present', !!r.indicators.busybox, r.indicators.busybox)}
+            ${checkRow('Build signed with test-keys', !!(b.build_tags && b.build_tags.includes('test-keys')), b.build_tags)}
+            ${checkRow('Debuggable build', b.debuggable === '1', 'ro.debuggable=' + escapeHtml(b.debuggable || '?'))}
+            ${checkRow('Insecure build', b.secure === '0', 'ro.secure=' + escapeHtml(b.secure || '?'))}
+            ${checkRow('SELinux not enforcing', !!(b.selinux && b.selinux.toLowerCase() !== 'enforcing'), 'getenforce=' + escapeHtml(b.selinux || '?'))}
+            ${checkRow('Bootloader unlocked', b.bootloader_locked === '0', 'ro.boot.flash.locked=' + escapeHtml(b.bootloader_locked || '?'))}
+          </tbody>
+        </table>
+        <div class="alert info" style="margin-top:10px;">${escapeHtml(r.disclaimer)}</div>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="alert error">${escapeHtml(String(err))}</div>`;
+  }
 }
 
 async function loadHardware(serial) {

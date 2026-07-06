@@ -11,6 +11,7 @@ from . import network  # noqa: F401
 from . import packages  # noqa: F401
 from . import process_manager  # noqa: F401
 from . import properties  # noqa: F401
+from . import root_detection  # noqa: F401
 from . import screen  # noqa: F401
 from . import shell  # noqa: F401
 
@@ -31,3 +32,4 @@ def register_blueprints(app):
     app.register_blueprint(battery.bp)
     app.register_blueprint(process_manager.bp)
     app.register_blueprint(jobs.bp)
+    app.register_blueprint(root_detection.bp)
