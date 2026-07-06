@@ -8,6 +8,7 @@ from . import manager
 _KEYCODE_RE = re.compile(r"^[A-Za-z0-9_]+$")
 MAX_MACRO_STEPS = 200
 MAX_MACRO_WAIT_MS = 60_000
+MAX_MACRO_NAME_LEN = 100
 
 
 def tap(serial: str, x: int, y: int) -> dict:
@@ -89,6 +90,8 @@ def list_macros() -> dict:
 
 
 def save_macro(name: str, steps: list) -> dict:
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_MACRO_NAME_LEN:
+        raise manager.AdbError(f"invalid macro name (must be 1-{MAX_MACRO_NAME_LEN} characters)")
     validate_macro_steps(steps)
     macros = config.load_macros()
     macros[name] = steps

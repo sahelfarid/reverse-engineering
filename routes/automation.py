@@ -16,12 +16,31 @@ def _wrap(fn, *args, **kwargs):
         return None, (jsonify({"ok": False, "error": str(exc)}), 400)
 
 
+class _InvalidField(Exception):
+    def __init__(self, field):
+        self.field = field
+
+
+def _int_field(d, key, default):
+    """int(d.get(key, default)), raising _InvalidField instead of letting a
+    malformed value (non-numeric string, None, ...) turn into an unhandled
+    500 down in tap()/swipe()/long_press()'s own int() coercion."""
+    try:
+        return int(d.get(key, default))
+    except (TypeError, ValueError):
+        raise _InvalidField(key)
+
+
 @bp.post("/api/devices/<serial>/input/tap")
 @auth.login_required
 @auth.csrf_protect
 def tap(serial):
     d = request.get_json(silent=True) or {}
-    result, err = _wrap(adb_automation.tap, serial, d.get("x", 0), d.get("y", 0))
+    try:
+        x, y = _int_field(d, "x", 0), _int_field(d, "y", 0)
+    except _InvalidField as exc:
+        return jsonify({"ok": False, "error": f"invalid_{exc.field}"}), 400
+    result, err = _wrap(adb_automation.tap, serial, x, y)
     return err or jsonify(result)
 
 
@@ -30,8 +49,13 @@ def tap(serial):
 @auth.csrf_protect
 def swipe(serial):
     d = request.get_json(silent=True) or {}
-    result, err = _wrap(adb_automation.swipe, serial, d.get("x1", 0), d.get("y1", 0),
-                         d.get("x2", 0), d.get("y2", 0), d.get("duration_ms", 300))
+    try:
+        x1, y1 = _int_field(d, "x1", 0), _int_field(d, "y1", 0)
+        x2, y2 = _int_field(d, "x2", 0), _int_field(d, "y2", 0)
+        duration_ms = _int_field(d, "duration_ms", 300)
+    except _InvalidField as exc:
+        return jsonify({"ok": False, "error": f"invalid_{exc.field}"}), 400
+    result, err = _wrap(adb_automation.swipe, serial, x1, y1, x2, y2, duration_ms)
     return err or jsonify(result)
 
 
@@ -40,7 +64,12 @@ def swipe(serial):
 @auth.csrf_protect
 def long_press(serial):
     d = request.get_json(silent=True) or {}
-    result, err = _wrap(adb_automation.long_press, serial, d.get("x", 0), d.get("y", 0), d.get("duration_ms", 800))
+    try:
+        x, y = _int_field(d, "x", 0), _int_field(d, "y", 0)
+        duration_ms = _int_field(d, "duration_ms", 800)
+    except _InvalidField as exc:
+        return jsonify({"ok": False, "error": f"invalid_{exc.field}"}), 400
+    result, err = _wrap(adb_automation.long_press, serial, x, y, duration_ms)
     return err or jsonify(result)
 
 

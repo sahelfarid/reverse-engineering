@@ -2,7 +2,7 @@
 
 Files: `adb/automation.py`, `routes/automation.py`, `static/js/automation.js`
 
-Coverage: backend 39%, route 48%.
+Coverage: backend 100% (was 39%), route 98% (was 48%).
 
 ## Implementation
 
@@ -15,15 +15,19 @@ Coverage: backend 39%, route 48%.
 ## Verified
 
 - Macro step validation is covered for known types, unknown types, max steps, and excessive wait time.
+- `tap()`/`swipe()`/`long_press()` (delegates to `swipe`)/`type_text()` (space->`%s`, quoting) command construction, `get_screen_size()` (override/physical size parsing, failure, no-match), and `keyevent()` (valid + invalid keycode) are all covered.
+- `play_macro()` is covered for step execution + overall `ok` aggregation, wait timing with patched `time.sleep()`, a failing step, and pre-flight rejection of invalid steps.
+- `list_macros()`/`save_macro()`/`delete_macro()` are covered including the new name validation below.
+- Every route is covered: `tap`/`swipe`/`long-press` (success + malformed-coordinate 400s), `text` (audit log with length), `keyevent`, `screen-size`, macro list/save/delete/play (missing fields, `AdbError` mapping, audit logs, macro-not-found 404), and CSRF rejection.
+
+**Two real bugs found and fixed while writing these tests:**
+1. `tap`/`swipe`/`long-press` routes passed `d.get("x", 0)` etc. straight into backend functions that call `int(x)` internally. A non-numeric value (or `None`) raised an uncaught `ValueError`/`TypeError`, producing an unhandled 500 instead of a 400. Added a route-level `_int_field()` helper that catches the conversion error and returns `{"ok": False, "error": "invalid_<field>"}` with a 400, used in all three routes.
+2. `save_macro()` accepted any JSON-truthy `name` value (including non-string types, since the route only checked `if not name`) with no length bound. Added validation in `adb/automation.py` rejecting non-string, blank/whitespace-only, or overly long (>100 char) names via the existing `AdbError` -> 400 path.
 
 ## Gaps And Risks
 
-- Coordinate and duration values are coerced with `int()` in backend functions. Bad route input can raise instead of producing a 400 response.
-- Macro names are not validated. They are JSON keys rather than filesystem paths, but validation would keep UI and API behavior predictable.
-- Macro playback device calls are not mocked in tests.
+- None outstanding for this module's Python surface.
 
 ## Recommended Tests
 
-- Unit tests for tap/swipe/text/keyevent command construction.
-- Route tests for malformed coordinate/duration payloads and macro CRUD.
-- Macro playback tests for wait timing with patched `time.sleep()` and mixed success/failure steps.
+- None outstanding.
