@@ -2,7 +2,7 @@
 
 Files: `adb/battery.py`, `routes/battery.py`, `static/js/battery.js`
 
-Coverage: backend 15%, route 51%.
+Coverage: backend 100% (was 15%), route 63% (was 51%; `routes/battery.py` is shared with the Permissions and Clipboard modules and will finish climbing when those passes land).
 
 ## Implementation
 
@@ -12,15 +12,14 @@ Coverage: backend 15%, route 51%.
 
 ## Verified
 
-- No direct battery/hardware parser tests are present.
+- `get_battery_detail()` (dumpsys merge + failure), `get_cpu_info()` (core counting, hardware/model extraction, failure), `get_gpu_info()` (EGL + renderer, failure), `get_sensors()` (quoted-name format, numbered fallback format, failure), `get_disk_usage()` (`df -h` parsing, failure), and `get_hardware_detail()` (composer) are all covered.
+- `/api/devices/<serial>/hardware` is covered for success, `AdbNotInstalledError` -> 503, `AdbError` -> 400, and login-required 401.
 
 ## Gaps And Risks
 
-- Very low backend coverage for several Android/OEM-specific parsers.
-- `grep` usage inside remote commands is convenient but may fail on minimal Android environments.
-- Sensor and disk parsers are best-effort and may silently return empty lists.
+- `grep` usage inside remote commands (`get_gpu_info()`'s `dumpsys SurfaceFlinger | grep -i GLES`) is convenient but may fail on minimal Android environments without `grep`; unchanged from the original audit, and not something a unit test against mocked output can validate.
+- Sensor and disk parsers are best-effort and may silently return empty lists on unexpected OEM formats -- documented behavior, not a bug.
 
 ## Recommended Tests
 
-- Mocked parser tests for `dumpsys battery`, `/proc/cpuinfo`, GPU renderer, sensorservice variants, and `df -h`.
-- Route tests for successful hardware response and ADB error mapping.
+- None outstanding for this module's Python surface. `routes/battery.py`'s permission and clipboard endpoints are tracked under the Permissions and Clipboard audits respectively, since that's where their backend logic lives.
