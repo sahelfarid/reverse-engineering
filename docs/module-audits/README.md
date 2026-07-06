@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 125 tests passed, total coverage 61%, as of the devices/dashboard pass.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 136 tests passed, total coverage 62%, as of the shell pass.
 
 ## Coverage Summary
 
@@ -25,7 +25,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Core app/auth/config/desktop | app 55%, auth 68%, config 92%, desktop 57% | routes/core 66% |
 | ADB manager | 80% | n/a |
 | Devices and dashboard | devices 89%, dashboard 98% | routes/devices 97% |
-| Shell | 30% | routes/shell 43% |
+| Shell | 100% | routes/shell 93% |
 | Files | 36% | routes/files 24% |
 | Packages | 39% | routes/packages 35% |
 | App inspector | 13% | routes/app_inspector 46% |

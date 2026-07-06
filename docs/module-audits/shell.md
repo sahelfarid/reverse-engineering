@@ -2,7 +2,7 @@
 
 Files: `adb/shell.py`, `routes/shell.py`, `static/js/shell.js`
 
-Coverage: backend 30%, route 43%.
+Coverage: backend 100% (was 30%), route 93% (was 43%).
 
 ## Implementation
 
@@ -12,17 +12,16 @@ Coverage: backend 30%, route 43%.
 
 ## Verified
 
-- Core remote-command execution behavior is partially covered through `adb.manager.shell()` tests.
-- Auth and CSRF behavior are covered generically by app route tests.
+- `run_command()` is covered for empty-command short-circuit (no `manager.shell()` call), normal passthrough, `su -c` wrapping via `quote_remote()`, and timeout passthrough.
+- `su_available()` is covered as a thin delegate to `manager.has_root_shell()`.
+- `/shell/exec` is covered for CSRF rejection, success with audit-log detail assertions (serial, `use_su`, truncated command, returncode), `AdbNotInstalledError` -> 503, and command truncation to 500 chars in the audit entry.
+- `/shell/su-available` is covered for success and `AdbError` -> 400.
 
 ## Gaps And Risks
 
 - This module intentionally executes arbitrary user-provided commands on connected devices. That is the feature, but it remains one of the highest-risk surfaces.
 - Non-root commands are passed directly as remote shell strings. This is correct for a terminal, but docs/UI should keep emphasizing local authorized use.
-- No tests cover route JSON handling, audit log details, empty command behavior, or root wrapping.
 
 ## Recommended Tests
 
-- Unit tests for `run_command()` empty command, normal command, root command wrapping, and ADB errors.
-- Flask client tests asserting CSRF protection and audit logging for `/shell/exec`.
-- Frontend smoke tests for terminal output rendering and command failure display.
+- Frontend smoke tests for terminal output rendering and command failure display (out of scope for the Python test suite).
