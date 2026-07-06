@@ -1,4 +1,5 @@
 import shutil
+from pathlib import Path
 
 from flask import Blueprint, jsonify, send_file
 
@@ -38,7 +39,15 @@ def download_job_result(job_id):
     if not job or job["status"] != "done" or not job.get("result") or not job["result"].get("file_path"):
         return jsonify({"ok": False, "error": "not_ready"}), 400
     result = job["result"]
-    response = send_file(result["file_path"], as_attachment=True, download_name=result.get("download_name"))
+    file_path = Path(result["file_path"])
+    if not file_path.is_file():
+        return jsonify({"ok": False, "error": "result_file_missing"}), 410
+
+    response = send_file(file_path, as_attachment=True, download_name=result.get("download_name"))
+    # send_file()'s direct_passthrough=True makes Werkzeug skip the
+    # ClosingIterator that calls Response.close() -- without this,
+    # call_on_close() below would never fire (see docs/module-audits/files.md).
+    response.direct_passthrough = False
     tmp_dir = result.get("tmp_dir")
     if tmp_dir:
         @response.call_on_close

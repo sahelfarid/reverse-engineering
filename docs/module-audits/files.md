@@ -30,5 +30,5 @@ Coverage: backend 98% (was 36%), route 89% (was 24%).
 
 ## Recommended Tests
 
-- Async job tests for the folder-download `_run()` closure itself: success, `run_adb_with_progress()` failure, and cleanup on exception (tracked with the Jobs module pass).
-- The same `direct_passthrough` fix and regression test should be checked against `routes/backup.py`, `routes/packages.py`, `routes/jobs.py`, and `routes/screen.py`, which use the identical `send_file()` + `call_on_close()` pattern.
+- Async job tests for the folder-download `_run()` closure itself: success, `run_adb_with_progress()` failure, and cleanup on exception. `run_adb_with_progress()` itself is now covered by the Jobs module pass; the closure that calls it here is still route-level untested (mocked out via `run_in_background()` in the route tests).
+- The same `direct_passthrough` fix was needed (and has since been applied) in `routes/backup.py`, `routes/packages.py`, `routes/jobs.py`, and `routes/screen.py`, which use the identical `send_file()` + `call_on_close()` pattern -- see each module's own audit file for details.

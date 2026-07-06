@@ -31,4 +31,4 @@ Coverage: backend 99% (was 39%), route 91% (was 35%).
 
 ## Recommended Tests
 
-- The same `direct_passthrough` regression check applied to `routes/backup.py`, `routes/jobs.py`, and `routes/screen.py` (tracked in `docs/module-audits/files.md`).
+- None outstanding -- the same `direct_passthrough` fix has since been applied to `routes/backup.py`, `routes/jobs.py`, and `routes/screen.py` too (see `docs/module-audits/files.md` and each module's own audit file).
