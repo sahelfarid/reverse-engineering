@@ -2,7 +2,7 @@
 
 Files: `adb/backup.py`, `routes/backup.py`, `static/js/backup.js`
 
-Coverage: backend 19%, route 30%.
+Coverage: backend 100% (was 19%), route 89% (was 30%).
 
 ## Implementation
 
@@ -14,17 +14,18 @@ Coverage: backend 19%, route 30%.
 
 ## Verified
 
-- Coverage is mostly indirect through package/file/job tests.
+- `resolve_export_path()`, `dump_logcat_to_file()` (including wireless-serial filename sanitization), `export_database()` (unsafe-name rejection, run-as success, root fallback, inaccessible case), and `export_app_data()` (run-as success + cleanup command, root fallback + cleanup command, inaccessible case, and the root-tar-failure case below) are all covered directly.
+- Every route is covered: `targets`, `export_folder` (unknown target 404, success + cleanup + audit log, pull failure), `export_logcat`/`export_apk`/`export_database`/`export_app_data` (success + cleanup + audit log, missing-field 400s), and `export_app_data_async` (job creation, missing-package 400).
+
+**Two real bugs found and fixed while writing these tests:**
+1. `export_app_data()` discarded the root-tar fallback command's return code entirely (`manager.shell(serial, f"su 0 tar -czf ...")` with no assignment). A failing root tar (e.g. permission denied) fell straight through to `adb_files.pull_file()`, surfacing as a confusing "pull failed" error instead of the actual tar failure. Now captures the return code and raises `AdbError(f"root tar failed: {stderr}")` immediately, matching the pattern already used for the run-as attempt. Verified by reverting the fix and confirming the new test attempts a real (unmocked) `pull_file()` call instead of stopping early.
+2. All five backup download routes shared `_send_and_cleanup()`, which had the same `send_file()`/`direct_passthrough` cleanup bug as `routes/files.py`, `routes/packages.py`, and `routes/screen.py`: `call_on_close()` never fired, so every folder/logcat/APK/database/app-data export leaked its temp directory. Fixed once in the shared helper (`response.direct_passthrough = False`), covering all five routes at once. Verified by reverting and confirming `test_export_logcat_success_cleans_up` fails without it.
 
 ## Gaps And Risks
 
-- Low coverage for a high-value data exfiltration module.
-- `export_app_data()` does not check the root tar command return code before pulling; a failed root tar may surface later as a pull failure, but a clearer error would help.
-- GET routes perform privileged/exporting actions. They are login-protected and audited, but HTTP semantics mean accidental prefetching should be considered.
-- Temp cleanup depends on response close or jobs download.
+- GET routes perform privileged/exporting actions. They remain login-protected and audited (as before); HTTP semantics mean accidental prefetching should still be kept in mind, but this is an accepted, documented tradeoff rather than a code bug.
+- The async app-data export job's inner `_run()` closure is not directly tested here, same as the async folder-download closure in `routes/files.py` -- tracked together with the Jobs module pass.
 
 ## Recommended Tests
 
-- Unit tests for common target resolution, logcat dump write, database name rejection, run-as/root fallback, remote cleanup, and root tar failure.
-- Route tests for missing fields, unknown targets, ADB errors, audit logging, and temp cleanup.
-- Async job tests for app-data export success/failure/cancel.
+- Async job tests for app-data export success/failure/cancel, covered together with the Jobs module's `run_adb_with_progress()` tests.

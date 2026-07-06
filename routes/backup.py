@@ -26,6 +26,10 @@ def _wrap(fn, *args, **kwargs):
 
 def _send_and_cleanup(local_path: Path, tmp_dir: str, download_name: str | None = None):
     response = send_file(local_path, as_attachment=True, download_name=download_name or local_path.name)
+    # send_file()'s direct_passthrough=True makes Werkzeug skip the
+    # ClosingIterator that calls Response.close() -- without this,
+    # call_on_close() below would never fire (see docs/module-audits/files.md).
+    response.direct_passthrough = False
 
     @response.call_on_close
     def _cleanup():

@@ -78,7 +78,11 @@ def export_app_data(serial: str, package: str, local_dir: Path) -> Path:
             raise manager.AdbError(
                 "App data is not accessible: requires the app to be debuggable (run-as) or a rooted device."
             )
-        manager.shell(serial, f"su 0 tar -czf {quoted_tmp} -C /data/data/{package} .", timeout=180)
+        _stdout, stderr, rc = manager.shell(
+            serial, f"su 0 tar -czf {quoted_tmp} -C /data/data/{package} .", timeout=180
+        )
+        if rc != 0:
+            raise manager.AdbError(f"root tar failed: {stderr.strip()[:300]}")
         used_root = True
 
     try:
