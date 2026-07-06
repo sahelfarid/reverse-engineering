@@ -4,6 +4,7 @@ from . import core  # noqa: F401
 from . import devices  # noqa: F401
 from . import files  # noqa: F401
 from . import logcat  # noqa: F401
+from . import network  # noqa: F401
 from . import packages  # noqa: F401
 from . import properties  # noqa: F401
 from . import screen  # noqa: F401
@@ -21,3 +22,4 @@ def register_blueprints(app):
     app.register_blueprint(screen.bp)
     app.register_blueprint(automation.bp)
     app.register_blueprint(properties.bp)
+    app.register_blueprint(network.bp)
