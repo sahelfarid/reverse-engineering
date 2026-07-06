@@ -58,7 +58,10 @@ def forward_add(serial):
 def forward_remove():
     d = request.get_json(silent=True) or {}
     result, err = _wrap(adb_network.remove_forward, d.get("local", ""))
-    return err or jsonify(result)
+    if err:
+        return err
+    auth.audit_log("forward_remove", {"local": d.get("local")})
+    return jsonify(result)
 
 
 @bp.get("/api/devices/<serial>/reverse")
@@ -86,7 +89,10 @@ def reverse_add(serial):
 def reverse_remove(serial):
     d = request.get_json(silent=True) or {}
     result, err = _wrap(adb_network.remove_reverse, serial, d.get("remote", ""))
-    return err or jsonify(result)
+    if err:
+        return err
+    auth.audit_log("reverse_remove", {"serial": serial, "remote": d.get("remote")})
+    return jsonify(result)
 
 
 @bp.post("/api/devices/<serial>/wireless/enable-tcpip")
@@ -104,7 +110,10 @@ def enable_tcpip(serial):
 @bp.get("/api/devices/<serial>/wireless/address")
 @auth.login_required
 def wireless_address(serial):
-    port = int(request.args.get("port", 5555))
+    try:
+        port = int(request.args.get("port", 5555))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid_port"}), 400
     result, err = _wrap(adb_wireless.get_device_wifi_address, serial, port)
     return err or jsonify({"ok": True, "address": result})
 
@@ -127,7 +136,10 @@ def wireless_connect():
 def wireless_disconnect():
     d = request.get_json(silent=True) or {}
     result, err = _wrap(adb_wireless.disconnect, d.get("address", ""))
-    return err or jsonify(result)
+    if err:
+        return err
+    auth.audit_log("wireless_disconnect", {"address": d.get("address")})
+    return jsonify(result)
 
 
 @bp.get("/api/wireless/known")
@@ -142,6 +154,8 @@ def known_devices():
 def known_device_save():
     d = request.get_json(silent=True) or {}
     result = adb_wireless.save_known_device(d.get("name", ""), d.get("address", ""))
+    if result.get("ok"):
+        auth.audit_log("wireless_known_save", {"name": d.get("name"), "address": d.get("address")})
     return jsonify(result)
 
 
@@ -149,7 +163,9 @@ def known_device_save():
 @auth.login_required
 @auth.csrf_protect
 def known_device_delete(name):
-    return jsonify(adb_wireless.delete_known_device(name))
+    result = adb_wireless.delete_known_device(name)
+    auth.audit_log("wireless_known_delete", {"name": name})
+    return jsonify(result)
 
 
 @bp.post("/api/wireless/reconnect-all")

@@ -2,7 +2,7 @@
 
 Files: `adb/network.py`, `adb/wireless.py`, `routes/network.py`, `static/js/network.js`
 
-Coverage: network 21%, wireless 27%, route 53%.
+Coverage: network 100% (was 21%), wireless 98% (was 27%), route 95% (was 53%).
 
 ## Implementation
 
@@ -13,17 +13,22 @@ Coverage: network 21%, wireless 27%, route 53%.
 
 ## Verified
 
-- Current tests do not directly cover network or wireless modules.
+- `get_network_info()` is covered for full field extraction and the all-missing/failure case.
+- `ping_from_device()` is covered for invalid-host rejection and command construction.
+- `_validate_port_spec()`, `add_forward()`/`remove_forward()`/`list_forwards()`, and `add_reverse()`/`remove_reverse()`/`list_reverses()` are covered including the new out-of-range-port rejection below.
+- `enable_tcpip()`, `get_device_wifi_address()`, `connect()`/`disconnect()` (including out-of-range-port rejection), and the known-device store (`save_known_device()`/`delete_known_device()`/`reconnect_known_devices()`, including the new name validation below) are covered.
+- Every mutating route is covered for success + audit-log assertions, including the four routes that were missing audit logging (see below), plus CSRF rejection and `AdbError` mapping.
+
+**Two real gaps found and fixed while writing these tests:**
+1. `_PORT_SPEC_RE` (network.py) and `_HOST_PORT_RE` (wireless.py) matched any digit sequence as a port, so `tcp:99999` or `192.168.1.50:999999` passed validation and were only rejected (or not) by the device's own `adb`/`tcpip` handling. Both now parse the port number out of the match and additionally require `0 <= port <= 65535`.
+2. Four mutating routes performed real state changes without an audit log entry: `forward_remove`, `reverse_remove`, `wireless_disconnect`, and the known-device save/delete pair (`known_device_save`/`known_device_delete`). All four now call `auth.audit_log()` on success, matching every other mutating route in the app. `known_device_save` only logs when the backend call actually reports `ok: True`, consistent with how validation failures are handled elsewhere.
+
+Also fixed in passing: `save_known_device()` now rejects non-string/blank/overly-long names (same treatment as macro names in the automation module), and `GET /api/devices/<serial>/wireless/address` now catches a malformed `port` query param instead of raising an uncaught `ValueError` (500).
 
 ## Gaps And Risks
 
-- Port validators accept any digits and do not enforce 1..65535.
-- Wireless known-device names are not validated; they are JSON keys, not paths, but validation would improve API predictability.
-- Network parsers depend on Android command output and are untested.
-- Some mutating network routes are not audit-logged, such as forward remove, reverse remove, wireless disconnect, and known-device save/delete.
+- Network parsers depend on Android command output format and remain best-effort for OEM variance; this is inherent to `dumpsys`/`ip`/`getprop` scraping and not something more unit tests can fully close.
 
 ## Recommended Tests
 
-- Unit tests for port validation, host validation, and wireless address validation including out-of-range ports.
-- Mocked parser tests for `ip addr`, `ip route`, DNS props, and Wi-Fi state.
-- Flask client tests for each mutating route, CSRF rejection, and audit log expectations.
+- None outstanding for this module's Python surface.

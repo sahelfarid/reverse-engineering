@@ -3,7 +3,7 @@ import re
 
 from . import manager
 
-_PORT_SPEC_RE = re.compile(r"^(tcp|udp):\d+$")
+_PORT_SPEC_RE = re.compile(r"^(?:tcp|udp):(\d+)$")
 
 
 def get_network_info(serial: str) -> dict:
@@ -40,8 +40,9 @@ def ping_from_device(serial: str, host: str, count: int = 4) -> dict:
 
 
 def _validate_port_spec(spec: str) -> str:
-    if not _PORT_SPEC_RE.match(spec):
-        raise manager.AdbError(f"invalid port spec: {spec!r} (expected tcp:<port> or udp:<port>)")
+    match = _PORT_SPEC_RE.match(spec)
+    if not match or not (0 <= int(match.group(1)) <= 65535):
+        raise manager.AdbError(f"invalid port spec: {spec!r} (expected tcp:<port> or udp:<port>, 0-65535)")
     return spec
 
 
