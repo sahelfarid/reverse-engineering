@@ -22,7 +22,11 @@ def get_permissions(serial: str, package: str) -> dict:
         return {"requested": [], "granted": [], "denied": []}
 
     requested = []
-    req_match = re.search(r"requested permissions:\n((?:\s+[\w.]+\n?)+)", stdout)
+    # Trailing \n is mandatory (not \n?) on each entry so this stops cleanly
+    # at the next section header (e.g. "install permissions:") instead of
+    # bleeding "install"/"permissions" into the requested list -- real device
+    # dumps have no blank line between the two sections.
+    req_match = re.search(r"requested permissions:\n((?:\s+[\w.]+\n)+)", stdout)
     if req_match:
         requested = [l.strip() for l in req_match.group(1).splitlines() if l.strip()]
 
