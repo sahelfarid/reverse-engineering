@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-theme="{{ settings.theme if settings else 'dark' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ADB Device Manager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <div id="toast-container" class="toast-container"></div>
+  {% block body %}{% endblock %}
+  <script>
+    window.CSRF_TOKEN = {{ csrf_token | default('') | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

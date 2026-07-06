@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}ADB Device Manager{% endblock %}
+{% block body %}
+<div class="app-shell">
+  <nav class="sidebar">
+    <div class="brand">ADB Panel</div>
+    <ul class="nav-tabs">
+      <li data-tab="dashboard" class="active">Dashboard</li>
+      <li data-tab="devices">Devices</li>
+      <li data-tab="files">Files</li>
+      <li data-tab="shell">Shell</li>
+      <li data-tab="packages">Packages</li>
+      <li data-tab="inspector">App Inspector</li>
+      <li data-tab="logcat">Logcat</li>
+      <li data-tab="screen">Screen</li>
+      <li data-tab="automation">Automation</li>
+      <li data-tab="properties">Properties</li>
+      <li data-tab="network">Network</li>
+      <li data-tab="wireless">Wireless</li>
+      <li data-tab="backup">Backup</li>
+      <li data-tab="battery">Battery/HW</li>
+      <li data-tab="permissions">Permissions</li>
+      <li data-tab="clipboard">Clipboard</li>
+      <li data-tab="media">Media</li>
+      <li data-tab="processes">Processes</li>
+      <li data-tab="settings">Settings</li>
+    </ul>
+    <button id="theme-toggle" class="ghost-btn">Toggle theme</button>
+    <button id="logout-btn" class="ghost-btn">Log out</button>
+  </nav>
+
+  <main class="content">
+    <header class="topbar">
+      <div id="adb-status-card" class="status-card">Checking ADB status…</div>
+      <div class="device-picker">
+        <select id="device-select"></select>
+        <button id="refresh-devices-btn">Refresh</button>
+      </div>
+    </header>
+
+    <section id="tab-dashboard" class="tab-pane active"></section>
+    <section id="tab-devices" class="tab-pane"></section>
+    <section id="tab-files" class="tab-pane"></section>
+    <section id="tab-shell" class="tab-pane"></section>
+    <section id="tab-packages" class="tab-pane"></section>
+    <section id="tab-inspector" class="tab-pane"></section>
+    <section id="tab-logcat" class="tab-pane"></section>
+    <section id="tab-screen" class="tab-pane"></section>
+    <section id="tab-automation" class="tab-pane"></section>
+    <section id="tab-properties" class="tab-pane"></section>
+    <section id="tab-network" class="tab-pane"></section>
+    <section id="tab-wireless" class="tab-pane"></section>
+    <section id="tab-backup" class="tab-pane"></section>
+    <section id="tab-battery" class="tab-pane"></section>
+    <section id="tab-permissions" class="tab-pane"></section>
+    <section id="tab-clipboard" class="tab-pane"></section>
+    <section id="tab-media" class="tab-pane"></section>
+    <section id="tab-processes" class="tab-pane"></section>
+    <section id="tab-settings" class="tab-pane"></section>
+  </main>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/devices.js') }}"></script>
+{% endblock %}
