@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 393 tests passed, total coverage 89%, as of the battery/hardware pass (no code bugs found in that module, test-coverage only). Real bugs found and fixed in earlier passes: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`, `routes/backup.py`; only `routes/jobs.py` still needs the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, unvalidated `int()` parsing in screen/automation/network routes could turn a bad request into a 500, port validators didn't enforce the 0-65535 range, four mutating network routes were missing audit logging entirely, and `export_app_data()`'s root-tar fallback discarded its return code, masking tar failures as confusing pull errors.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 408 tests passed, total coverage 90%, as of the permissions pass. Real bugs found and fixed so far: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`, `routes/backup.py`; only `routes/jobs.py` still needs the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, unvalidated `int()` parsing in screen/automation/network routes could turn a bad request into a 500, port validators didn't enforce the 0-65535 range, four mutating network routes were missing audit logging entirely, `export_app_data()`'s root-tar fallback discarded its return code, and permission grant/revoke only checked stderr for failure text (missed stdout-only failures on some OEM builds).
 
 ## Coverage Summary
 
@@ -36,7 +36,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Network and wireless | network 100%, wireless 98% | routes/network 95% |
 | Backup | 100% | routes/backup 89% |
 | Battery and hardware | 100% | routes/battery 63% |
-| Permissions | 35% | routes/battery 51% |
+| Permissions | 100% | routes/battery 86% |
 | Clipboard | 62% | routes/battery 51% |
 | Process manager | 64% | routes/process_manager 50% |
 | Jobs | 61% | routes/jobs 50% |

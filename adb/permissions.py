@@ -47,16 +47,16 @@ def get_permission_detail(serial: str, package: str) -> dict:
 def grant_permission(serial: str, package: str, permission: str) -> dict:
     packages.validate_package(package)
     validate_permission(permission)
-    _stdout, stderr, rc = manager.shell(
+    stdout, stderr, rc = manager.shell(
         serial, f"pm grant {manager.quote_remote(package)} {manager.quote_remote(permission)}", timeout=15
     )
-    return {"ok": rc == 0, "error": None if rc == 0 else stderr.strip()[:300]}
+    return {"ok": rc == 0, "error": None if rc == 0 else (stderr or stdout).strip()[:300]}
 
 
 def revoke_permission(serial: str, package: str, permission: str) -> dict:
     packages.validate_package(package)
     validate_permission(permission)
-    _stdout, stderr, rc = manager.shell(
+    stdout, stderr, rc = manager.shell(
         serial, f"pm revoke {manager.quote_remote(package)} {manager.quote_remote(permission)}", timeout=15
     )
-    return {"ok": rc == 0, "error": None if rc == 0 else stderr.strip()[:300]}
+    return {"ok": rc == 0, "error": None if rc == 0 else (stderr or stdout).strip()[:300]}
