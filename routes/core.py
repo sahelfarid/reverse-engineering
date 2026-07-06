@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, render_template, request, session
+from werkzeug.security import generate_password_hash
 
 import auth
 import config
@@ -32,6 +33,24 @@ def login():
 @auth.login_required
 def logout():
     auth.logout_session()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/auth/change-password")
+@auth.login_required
+@auth.csrf_protect
+def change_password():
+    data = request.get_json(silent=True) or {}
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+    if not auth.verify_password(current_password):
+        return jsonify({"ok": False, "error": "invalid_current_password"}), 401
+    if len(new_password) < 6:
+        return jsonify({"ok": False, "error": "new_password_too_short"}), 400
+    settings = config.load_settings()
+    settings["password_hash"] = generate_password_hash(new_password)
+    config.save_settings(settings)
+    auth.audit_log("password_changed", {})
     return jsonify({"ok": True})
 
 
