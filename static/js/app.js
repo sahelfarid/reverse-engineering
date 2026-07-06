@@ -112,7 +112,7 @@ function initLogout() {
   });
 }
 
-// --- ADB status/install ---------------------------------------------------
+// --- Tool status/install ---------------------------------------------------
 async function refreshAdbStatus() {
   const card = document.getElementById('adb-status-card');
   if (!card) return null;
@@ -125,6 +125,112 @@ async function refreshAdbStatus() {
     card.innerHTML = `<span class="badge red">Error</span> Could not reach server`;
     return null;
   }
+}
+
+async function refreshApktoolStatus() {
+  const card = document.getElementById('apktool-status-card');
+  if (!card) return null;
+  try {
+    const res = await apiFetch('/api/apktool/status');
+    const status = await res.json();
+    renderApktoolStatus(status);
+    return status;
+  } catch (err) {
+    card.innerHTML = `<span class="badge red">APKTool error</span>`;
+    return null;
+  }
+}
+
+function renderApktoolStatus(status) {
+  const card = document.getElementById('apktool-status-card');
+  const javaOk = status.java && status.java.installed;
+  const apktoolOk = status.apktool && status.apktool.installed;
+  if (!javaOk) {
+    card.innerHTML = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
+    return;
+  }
+  if (apktoolOk) {
+    card.innerHTML = `<span class="badge green">APKTool installed</span> v${escapeHtml(status.apktool.version || status.apktool.pinned_version || '')}`;
+    return;
+  }
+  card.innerHTML = `<span class="badge red">APKTool missing</span> <button id="install-apktool-btn">Install APKTool</button>`;
+  document.getElementById('install-apktool-btn').addEventListener('click', installApktool);
+}
+
+async function installApktool() {
+  const card = document.getElementById('apktool-status-card');
+  card.innerHTML = `<span class="badge yellow">Installing...</span> downloading apktool.jar`;
+  try {
+    const res = await apiFetch('/api/apktool/install', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      toast('APKTool installed successfully', 'success');
+      renderApktoolStatus(data.status);
+    } else {
+      toast(`APKTool install failed: ${data.error}`, 'error');
+      refreshApktoolStatus();
+    }
+  } catch (err) {
+    toast(`APKTool install failed: ${err}`, 'error');
+    refreshApktoolStatus();
+  }
+}
+
+async function refreshFridaToolStatus() {
+  const card = document.getElementById('frida-tool-status-card');
+  if (!card) return null;
+  try {
+    const res = await apiFetch('/api/frida/status');
+    const status = await res.json();
+    renderFridaToolStatus(status);
+    return status;
+  } catch (err) {
+    card.innerHTML = `<span class="badge red">Frida error</span>`;
+    return null;
+  }
+}
+
+function renderFridaToolStatus(status) {
+  const card = document.getElementById('frida-tool-status-card');
+  const serial = typeof getSelectedSerial === 'function' ? getSelectedSerial() : '';
+  const ds = serial && status.devices ? status.devices.find((d) => d.serial === serial) : null;
+  if (!status.python_installed) {
+    card.innerHTML = `<span class="badge red">Frida missing</span> Install requirements.txt`;
+    return;
+  }
+  if (!ds) {
+    card.innerHTML = `<span class="badge green">Frida package</span> v${escapeHtml(status.python_version || '')}`;
+    return;
+  }
+  if (ds.error) {
+    card.innerHTML = `<span class="badge red">Frida device error</span> ${escapeHtml(ds.error)}`;
+    return;
+  }
+  if (!ds.root_available) {
+    card.innerHTML = `<span class="badge yellow">Frida needs root</span> v${escapeHtml(status.python_version || '')}`;
+    return;
+  }
+  if (ds.server_pushed) {
+    card.innerHTML = `<span class="badge green">Frida server ready</span> ${ds.server_running ? 'running' : 'pushed'}`;
+    return;
+  }
+  card.innerHTML = `<span class="badge yellow">Frida server missing</span> <button id="install-frida-server-btn">Install Frida</button>`;
+  document.getElementById('install-frida-server-btn').addEventListener('click', installFridaServer);
+}
+
+async function installFridaServer() {
+  const serial = typeof getSelectedSerial === 'function' ? getSelectedSerial() : '';
+  if (!serial) { toast('Select a rooted device first', 'error'); return; }
+  const card = document.getElementById('frida-tool-status-card');
+  card.innerHTML = `<span class="badge yellow">Installing...</span> pushing frida-server`;
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/server/push`, { method: 'POST' });
+    const data = await res.json();
+    toast(data.ok ? 'Frida server installed on device' : `Frida install failed: ${data.error}`, data.ok ? 'success' : 'error');
+  } catch (err) {
+    toast(`Frida install failed: ${err}`, 'error');
+  }
+  refreshFridaToolStatus();
 }
 
 function renderAdbStatus(status) {
@@ -192,5 +298,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogout();
   initKeyboardShortcuts();
   refreshAdbStatus();
-  if (typeof onDeviceChange === 'function') onDeviceChange(updateNavDeviceGating);
+  refreshApktoolStatus();
+  refreshFridaToolStatus();
+  if (typeof onDeviceChange === 'function') {
+    onDeviceChange(updateNavDeviceGating);
+    onDeviceChange(() => refreshFridaToolStatus());
+  }
 });

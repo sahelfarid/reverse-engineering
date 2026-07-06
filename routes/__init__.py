@@ -1,4 +1,5 @@
 from . import app_inspector  # noqa: F401
+from . import apktool  # noqa: F401
 from . import automation  # noqa: F401
 from . import backup  # noqa: F401
 from . import battery  # noqa: F401
@@ -23,6 +24,7 @@ def register_blueprints(app):
     app.register_blueprint(shell.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(frida.bp)
+    app.register_blueprint(apktool.bp)
     app.register_blueprint(packages.bp)
     app.register_blueprint(app_inspector.bp)
     app.register_blueprint(logcat.bp)

@@ -5,6 +5,7 @@ venv/
 vendor/
 temp/
 data/
+workspace/
 *.zip
 *.log
 .claude/

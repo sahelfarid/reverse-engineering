@@ -7,6 +7,7 @@
     <ul class="nav-tabs">
       <li data-tab="dashboard" class="active">Dashboard</li>
       <li data-tab="devices">Devices</li>
+      <li data-tab="apktool" data-requires-device="true">APKTool</li>
       <li data-tab="files" data-requires-device="true">Files</li>
       <li data-tab="shell" data-requires-device="true">Shell</li>
       <li data-tab="packages" data-requires-device="true">Packages</li>
@@ -34,7 +35,11 @@
 
   <main class="content">
     <header class="topbar">
-      <div id="adb-status-card" class="status-card">Checking ADB status…</div>
+      <div class="status-strip">
+        <div id="adb-status-card" class="status-card">Checking ADB status...</div>
+        <div id="apktool-status-card" class="status-card">Checking APKTool...</div>
+        <div id="frida-tool-status-card" class="status-card">Checking Frida...</div>
+      </div>
       <div class="device-picker">
         <select id="device-select"></select>
         <button id="refresh-devices-btn">Refresh</button>
@@ -43,6 +48,7 @@
 
     <section id="tab-dashboard" class="tab-pane active"></section>
     <section id="tab-devices" class="tab-pane"></section>
+    <section id="tab-apktool" class="tab-pane"></section>
     <section id="tab-files" class="tab-pane"></section>
     <section id="tab-shell" class="tab-pane"></section>
     <section id="tab-packages" class="tab-pane"></section>
@@ -67,6 +73,7 @@
 {% block extra_scripts %}
 <script src="{{ url_for('static', filename='js/devices.js') }}"></script>
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apktool.js') }}"></script>
 <script src="{{ url_for('static', filename='js/shell.js') }}"></script>
 <script src="{{ url_for('static', filename='js/files.js') }}"></script>
 <script src="{{ url_for('static', filename='js/packages.js') }}"></script>

@@ -83,6 +83,7 @@ async function loadSettingsForm() {
   const s = data.settings;
   container.innerHTML = `
     <label>ADB path override<br><input type="text" id="set-adb-path" value="${escapeHtml(s.adb_path_override || '')}" placeholder="(auto-detect)" style="width:100%;"></label><br><br>
+    <label>Android SDK path override<br><input type="text" id="set-android-sdk-path" value="${escapeHtml(s.android_sdk_path_override || '')}" placeholder="(ANDROID_HOME / ANDROID_SDK_ROOT)" style="width:100%;"></label><br><br>
     <label>Refresh interval (ms)<br><input type="number" id="set-refresh-interval" value="${s.refresh_interval_ms}" style="width:100%;"></label><br><br>
     <label>Shell timeout (sec)<br><input type="number" id="set-shell-timeout" value="${s.shell_timeout_sec}" style="width:100%;"></label><br><br>
     <label>Max log lines<br><input type="number" id="set-max-log" value="${s.max_log_lines}" style="width:100%;"></label><br><br>
@@ -101,6 +102,7 @@ async function loadSettingsForm() {
 async function saveSettingsForm() {
   const body = {
     adb_path_override: document.getElementById('set-adb-path').value.trim() || null,
+    android_sdk_path_override: document.getElementById('set-android-sdk-path').value.trim() || null,
     refresh_interval_ms: parseInt(document.getElementById('set-refresh-interval').value, 10) || 4000,
     shell_timeout_sec: parseInt(document.getElementById('set-shell-timeout').value, 10) || 20,
     max_log_lines: parseInt(document.getElementById('set-max-log').value, 10) || 5000,

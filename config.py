@@ -60,11 +60,17 @@ SETTINGS_PATH = DATA_DIR / "settings.json"
 KNOWN_DEVICES_PATH = DATA_DIR / "known_devices.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log"
 MACROS_PATH = DATA_DIR / "macros.json"
+WORKSPACE_DIR = BASE_DIR / "workspace"
 
 PLATFORM_TOOLS_URL_TEMPLATE = "https://dl.google.com/android/repository/platform-tools-latest-{tag}.zip"
+APKTOOL_VERSION = "3.0.2"
+APKTOOL_URL_TEMPLATE = "https://github.com/iBotPeaches/Apktool/releases/download/v{version}/apktool_{version}.jar"
+
+WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SETTINGS = {
     "adb_path_override": None,
+    "android_sdk_path_override": None,
     "refresh_interval_ms": 4000,
     "default_device_serial": None,
     "shell_timeout_sec": 20,
@@ -129,6 +135,7 @@ def _is_optional_str(value) -> bool:
 
 SETTINGS_VALIDATORS = {
     "adb_path_override": _is_optional_str,
+    "android_sdk_path_override": _is_optional_str,
     "refresh_interval_ms": _is_int_in_range(250, 60_000),
     "default_device_serial": _is_optional_str,
     "shell_timeout_sec": _is_int_in_range(1, 300),

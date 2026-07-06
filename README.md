@@ -1,6 +1,6 @@
 # ADB Device Manager
 
-A local Flask panel for browsing, testing, and managing Android devices over ADB. It includes device discovery, file transfer, shell access, package/app inspection, logcat streaming, screen tools, input automation, backups, network tools, permissions, clipboard helpers, process management, Frida instrumentation, and a portable desktop wrapper.
+A local Flask panel for browsing, testing, and managing Android devices over ADB. It includes device discovery, file transfer, shell access, APKTool decompile/rebuild workflows, package/app inspection, logcat streaming, screen tools, input automation, backups, network tools, permissions, clipboard helpers, process management, Frida instrumentation, and a portable desktop wrapper.
 
 **This is a local developer tool, not a hosted service.** It binds to `127.0.0.1` only and must never be exposed on a public network. It can run privileged shell actions and modify connected devices, so login, CSRF protection, and audit logging stay enabled even in the desktop build.
 
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-If ADB is not installed or on `PATH`, the Dashboard offers an **Install ADB** button. It downloads Google's official platform-tools zip into `vendor/platform-tools/` without admin rights or system PATH changes.
+If ADB is not installed or on `PATH`, the Dashboard offers an **Install ADB** button. It downloads Google's official platform-tools zip into `vendor/platform-tools/` without admin rights or system PATH changes. APKTool and Frida server status sit beside the ADB status card: APKTool can be downloaded into `vendor/apktool/`, while Frida server install pushes the matching binary to the selected rooted device.
 
 ## Desktop App And Builds
 
@@ -82,6 +82,7 @@ Desktop dependencies live in `requirements-desktop.txt`; web-only usage only nee
 - Device discovery, fastboot detection, per-device model/build/battery/storage detail.
 - File browser with upload/download, folder export, preview, search, rename, move, copy, mkdir, and delete.
 - Shell terminal with safe ADB invocation and optional rooted `su` usage.
+- APKTool tab for authorized APK pull, decompile, local edit, rebuild, debug-sign, and reinstall workflows.
 - Package management: install, uninstall, enable/disable, clear data, force-stop, launch, restart, APK pull, and size inspection.
 - App inspector for permissions, components, data directory access, databases, and backup paths.
 - Live logcat over SSE with tag, pid, package, level, and regex filters.
@@ -111,6 +112,21 @@ The Frida tab can:
 
 Mutating Frida routes require login and CSRF, and attach/script actions audit the target and script hash rather than storing full script source in the audit log.
 
+## APKTool Workflow
+
+APKTool support is for apps you own, your own test devices, or work where you have explicit authorization.
+
+The APKTool tab can:
+
+- Check Java, cached apktool.jar, signing tools, optional zipalign, and the debug keystore.
+- Download the pinned apktool.jar release into `vendor/apktool/apktool.jar`.
+- Pull an installed package's APK through the existing package helper and decompile it under `workspace/apktool_projects/<package>/`.
+- Browse the decompiled tree with strict local path containment.
+- Edit smali/XML/text files in a textarea.
+- Rebuild with apktool, optionally zipalign, sign with apksigner or jarsigner, and reinstall through the existing package installer.
+
+Java is required and is not silently installed; use a JRE/JDK such as Adoptium. Android SDK build-tools are recommended for `apksigner` and `zipalign`; a JDK `jarsigner` fallback is supported.
+
 ## API Surface
 
 All routes are `/api/...` and return JSON except file/image/zip downloads and SSE streams. Grouped by area:
@@ -120,6 +136,7 @@ All routes are `/api/...` and return JSON except file/image/zip downloads and SS
 - **Shell**: su-available, exec.
 - **Files**: browse, search, mkdir, delete, rename, move, copy, upload, download, folder download, preview.
 - **Packages**: list, install, uninstall, disable/enable, clear-data, force-stop, launch, restart, pull APK, size.
+- **APKTool**: tool status/install, decompile jobs, project list/browser, file read/save, rebuild jobs, reinstall, delete project.
 - **App Inspector**: permissions/components/data-dir detail.
 - **Logcat**: SSE stream and clear.
 - **Screen**: screenshot, record start/stop/status/pull, rotate, wake/sleep, brightness.
@@ -174,6 +191,8 @@ To add a new tab: add an `adb/<area>.py` module with pure Python logic, add a `r
 ## Troubleshooting
 
 - **ADB not installed**: use the Dashboard install button, or check network access to `dl.google.com`.
+- **APKTool missing**: use the Dashboard or APKTool tab install button; Java must already be installed.
+- **APK rebuild cannot sign**: install Android SDK build-tools for apksigner, or a JDK that includes jarsigner/keytool.
 - **Device unauthorized**: accept the RSA key prompt on the device and refresh.
 - **Device offline**: reconnect USB or restart the ADB server externally.
 - **Permission denied browsing files**: protected paths require root; navigate elsewhere or use a rooted test device.
