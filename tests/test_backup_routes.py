@@ -1,4 +1,7 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from adb import manager as adb_manager
 
@@ -125,6 +128,44 @@ def test_export_app_data_async_creates_job(auth_client):
 def test_export_app_data_async_missing_package(auth_client):
     res = auth_client.get("/api/devices/s1/backup/app-data/async")
     assert res.status_code == 400
+
+
+def test_export_app_data_async_run_closure_success(auth_client, tmp_path):
+    tar_file = tmp_path / "com.example.app_data.tar.gz"
+    tar_file.write_bytes(b"tar-bytes")
+    with patch("routes.backup.adb_jobs.create_job", return_value="job-1"), \
+         patch("routes.backup.adb_jobs.run_in_background") as mock_run, \
+         patch("routes.backup.tempfile.mkdtemp", return_value=str(tmp_path)), \
+         patch("routes.backup.auth.audit_log"):
+        res = auth_client.get("/api/devices/s1/backup/app-data/async?package=com.example.app")
+    assert res.status_code == 200
+    run_closure = mock_run.call_args[0][1]
+
+    with patch("routes.backup.adb_backup.export_app_data", return_value=tar_file) as mock_export:
+        result = run_closure("job-1")
+
+    mock_export.assert_called_once_with("s1", "com.example.app", Path(tmp_path))
+    assert result == {
+        "file_path": str(tar_file), "download_name": "com.example.app_data.tar.gz", "tmp_dir": str(tmp_path),
+    }
+    assert tmp_path.exists()  # success path leaves cleanup to the download route
+
+
+def test_export_app_data_async_run_closure_cleans_up_on_failure(auth_client, tmp_path):
+    with patch("routes.backup.adb_jobs.create_job", return_value="job-2"), \
+         patch("routes.backup.adb_jobs.run_in_background") as mock_run, \
+         patch("routes.backup.tempfile.mkdtemp", return_value=str(tmp_path)), \
+         patch("routes.backup.auth.audit_log"):
+        res = auth_client.get("/api/devices/s1/backup/app-data/async?package=com.example.app")
+    assert res.status_code == 200
+    run_closure = mock_run.call_args[0][1]
+
+    with patch("routes.backup.adb_backup.export_app_data", side_effect=adb_manager.AdbError("no root, no run-as")), \
+         patch("routes.backup.shutil.rmtree") as mock_rmtree:
+        with pytest.raises(adb_manager.AdbError):
+            run_closure("job-2")
+
+    mock_rmtree.assert_called_once_with(str(tmp_path), ignore_errors=True)
 
 
 def test_all_export_routes_require_login(client):

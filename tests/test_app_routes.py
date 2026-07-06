@@ -1,9 +1,11 @@
 import json
+from unittest.mock import patch
 
 import pytest
 from werkzeug.security import generate_password_hash
 
 import config
+from adb import manager as adb_manager
 from app import app as flask_app
 
 TEST_PASSWORD = "test-password-123"
@@ -100,3 +102,86 @@ def test_update_settings_ignores_password_hash_field(client):
     assert res.status_code == 200
     assert "password_hash" in body["rejected"]
     assert "password_hash" not in body["settings"]
+
+
+def test_change_password_rejects_wrong_current_password(client):
+    csrf = _login_and_get_csrf(client)
+    res = client.post(
+        "/api/auth/change-password",
+        data=json.dumps({"current_password": "wrong", "new_password": "new-password-123"}),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 401
+    assert res.get_json()["error"] == "invalid_current_password"
+
+
+def test_change_password_rejects_short_new_password(client):
+    csrf = _login_and_get_csrf(client)
+    res = client.post(
+        "/api/auth/change-password",
+        data=json.dumps({"current_password": TEST_PASSWORD, "new_password": "abc"}),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "new_password_too_short"
+
+
+def test_change_password_success_updates_hash_and_audit_logs(client):
+    csrf = _login_and_get_csrf(client)
+    with patch("routes.core.auth.audit_log") as mock_audit:
+        res = client.post(
+            "/api/auth/change-password",
+            data=json.dumps({"current_password": TEST_PASSWORD, "new_password": "new-password-123"}),
+            content_type="application/json",
+            headers={"X-CSRF-Token": csrf},
+        )
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is True
+    mock_audit.assert_called_once_with("password_changed", {})
+
+    # Old password not accepted; new password is, in a follow-up login.
+    stale_login = client.post(
+        "/api/auth/login", data=json.dumps({"password": TEST_PASSWORD}), content_type="application/json",
+    )
+    assert stale_login.status_code == 401
+    fresh_login = client.post(
+        "/api/auth/login", data=json.dumps({"password": "new-password-123"}), content_type="application/json",
+    )
+    assert fresh_login.status_code == 200
+
+
+def test_change_password_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": TEST_PASSWORD}), content_type="application/json")
+    res = client.post(
+        "/api/auth/change-password",
+        data=json.dumps({"current_password": TEST_PASSWORD, "new_password": "new-password-123"}),
+        content_type="application/json",
+    )
+    assert res.status_code == 403
+
+
+def test_adb_install_success(client):
+    csrf = _login_and_get_csrf(client)
+    fake_status = {"installed": True, "source": "vendor", "version": "34.0.0", "path": "/vendor/adb"}
+    with patch("routes.core.adb_manager.install_adb", return_value=fake_status), \
+         patch("routes.core.auth.audit_log") as mock_audit:
+        res = client.post(
+            "/api/adb/install", content_type="application/json", headers={"X-CSRF-Token": csrf},
+        )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body["status"] == fake_status
+    mock_audit.assert_called_once_with("adb_install", {"path": "/vendor/adb"})
+
+
+def test_adb_install_maps_install_error(client):
+    csrf = _login_and_get_csrf(client)
+    with patch("routes.core.adb_manager.install_adb", side_effect=adb_manager.AdbInstallError("download failed")):
+        res = client.post(
+            "/api/adb/install", content_type="application/json", headers={"X-CSRF-Token": csrf},
+        )
+    assert res.status_code == 500
+    assert res.get_json()["ok"] is False

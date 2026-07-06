@@ -12,3 +12,4 @@ data/
 .coverage
 TODO.md
 dist/
+node_modules/

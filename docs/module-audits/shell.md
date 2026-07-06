@@ -2,26 +2,21 @@
 
 Files: `adb/shell.py`, `routes/shell.py`, `static/js/shell.js`
 
-Coverage: backend 100% (was 30%), route 93% (was 43%).
+Coverage: backend 100%, route 93% (unchanged); frontend now covered by `tests/frontend/shell.test.js` (Vitest + jsdom).
 
-## Implementation
+Full implementation notes, API reference, and permanent known limitations now live in the module
+documentation: [`docs/modules/shell.md`](../modules/shell.md). This file tracks only what is still
+open from the original audit pass.
 
-- Provides an interactive command execution endpoint over `manager.shell()`.
-- Optional root mode wraps the user command with `su -c` and `manager.quote_remote()`.
-- All shell execution requires login, CSRF, and audit logging with serial, `use_su`, command prefix, and return code.
+## Resolved This Pass
 
-## Verified
+Added a minimal JS test harness (`package.json`, `vitest.config.js`, `tests/frontend/`) and
+`tests/frontend/shell.test.js`, which loads the real `static/js/app.js` and `static/js/shell.js`
+into a jsdom window (as classic scripts, same as the browser -- no bundler) and exercises terminal
+rendering directly: successful-command stdout + green exit badge, failing-command stderr + red exit
+badge, an API-level error surfacing as a toast, and HTML-escaping of both the command and its output.
+This closes the last open item for this module.
 
-- `run_command()` is covered for empty-command short-circuit (no `manager.shell()` call), normal passthrough, `su -c` wrapping via `quote_remote()`, and timeout passthrough.
-- `su_available()` is covered as a thin delegate to `manager.has_root_shell()`.
-- `/shell/exec` is covered for CSRF rejection, success with audit-log detail assertions (serial, `use_su`, truncated command, returncode), `AdbNotInstalledError` -> 503, and command truncation to 500 chars in the audit entry.
-- `/shell/su-available` is covered for success and `AdbError` -> 400.
+## Remaining Items
 
-## Gaps And Risks
-
-- This module intentionally executes arbitrary user-provided commands on connected devices. That is the feature, but it remains one of the highest-risk surfaces.
-- Non-root commands are passed directly as remote shell strings. This is correct for a terminal, but docs/UI should keep emphasizing local authorized use.
-
-## Recommended Tests
-
-- Frontend smoke tests for terminal output rendering and command failure display (out of scope for the Python test suite).
+- None. Every gap and recommended test identified in the original audit has been closed -- either fixed in code (with a regression test proving the bug existed) or closed with test coverage where the gap was purely a testing hole. See the module documentation's Known Limitations section for the permanent, accepted tradeoffs that remain by design (not bugs).

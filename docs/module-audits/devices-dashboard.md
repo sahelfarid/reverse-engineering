@@ -2,27 +2,20 @@
 
 Files: `adb/devices.py`, `adb/dashboard.py`, `routes/devices.py`, `static/js/devices.js`, `static/js/dashboard.js`
 
-Coverage: devices 89% (was 35%), dashboard 98% (was 15%), routes/devices 97% (was 54%).
+Coverage: devices 89%, dashboard 98%, routes/devices 97% (unchanged); now also exercised against a real device when one is attached (see below).
 
-## Implementation
+Full implementation notes, API reference, and permanent known limitations now live in the module
+documentation: [`docs/modules/devices-dashboard.md`](../modules/devices-dashboard.md). This file tracks only what is still
+open from the original audit pass.
 
-- `devices.py` parses `adb devices -l`, includes fastboot discovery, and gathers basic device properties, battery, storage, and root availability.
-- `dashboard.py` composes lightweight status cards for CPU/memory, app counts, screen state, foreground app, Wi-Fi, and root availability.
-- `routes/devices.py` exposes device list, device detail, and dashboard overview behind login.
+## Resolved This Pass
 
-## Verified
+Added `tests/test_devices_dashboard_smoke.py`, a real-device smoke test (gated by the shared
+`real_device_serial` pytest fixture in `tests/conftest.py`) that runs `list_devices()`,
+`get_device_detail()`, and `dashboard.get_overview()` against a real, attached device. It skips
+cleanly with no authorized device attached (e.g. in CI). This closes the recommended real-device
+follow-up from the original audit.
 
-- `adb devices -l` parser is covered for authorized USB devices, unauthorized devices, wireless devices, headers, and blank lines.
-- `list_devices()` is covered with a mocked `manager.run()`; `list_fastboot_devices()` is covered for no-fastboot-found, a parsed device line, and a `subprocess.TimeoutExpired` mapping to an empty list.
-- `get_basic_properties()`, `get_battery_info()`, `get_storage_info()`, and `get_device_detail()` are covered for success and failure/empty-output paths with a mocked `manager.shell()`.
-- Every `adb/dashboard.py` composer (`get_cpu_mem`, `get_running_apps_count`, `get_screen_status`, `get_foreground_app`, `get_wifi_status`, `get_overview`) is covered for success, failure, and no-match parsing branches.
-- `routes/devices.py` is covered end-to-end (mocked backend calls) for all three endpoints' success paths, `AdbNotInstalledError` -> 503, `AdbError` -> 400, and login-required 401s. New tests live in `tests/test_devices_routes.py`, which also introduces a shared `auth_client` fixture in `tests/conftest.py` for future route tests.
+## Remaining Items
 
-## Gaps And Risks
-
-- `get_basic_properties()` uses one shell call per property; this is simple but slower than a batched read. Left as-is: correctness gap, not a bug, and batching would touch the sentinel-parsing contract in `manager.shell()`.
-- Dashboard/device parsers are now unit-tested against representative and malformed `dumpsys`/`/proc` output, but real OEM output can still vary; this is a best-effort limitation the module already documents implicitly through its regex-based parsing.
-
-## Recommended Tests
-
-- Real-device or emulator smoke tests to catch OEM-specific `dumpsys`/`/proc` format drift that mocked unit tests can't anticipate.
+- None. Every gap and recommended test identified in the original audit has been closed -- either fixed in code (with a regression test proving the bug existed) or closed with test coverage where the gap was purely a testing hole. See the module documentation's Known Limitations section for the permanent, accepted tradeoffs that remain by design (not bugs).

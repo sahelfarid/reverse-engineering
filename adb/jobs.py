@@ -13,6 +13,7 @@ from . import manager
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
 _PROGRESS_RE = re.compile(r"(\d{1,3})%")
+_MAX_RETAINED_JOBS = 200  # well above the 50-item list view; bounds long-session memory growth
 
 
 class JobCancelled(Exception):
@@ -28,7 +29,25 @@ def create_job(job_type: str, label: str = "") -> str:
             "created_at": time.time(),
             "_cancel_event": threading.Event(), "_process": None,
         }
+        _prune_locked()
     return job_id
+
+
+def _prune_locked() -> None:
+    """Drop the oldest terminal (done/error/cancelled) jobs once the registry
+    exceeds _MAX_RETAINED_JOBS. Pending/running jobs are never pruned,
+    regardless of how large the registry gets -- callers must be able to rely
+    on cancel/status lookups for a job they know is still in flight. Caller
+    must hold _lock."""
+    overflow = len(_jobs) - _MAX_RETAINED_JOBS
+    if overflow <= 0:
+        return
+    terminal = sorted(
+        (j for j in _jobs.values() if j["status"] in ("done", "error", "cancelled")),
+        key=lambda j: j["created_at"],
+    )
+    for job in terminal[:overflow]:
+        del _jobs[job["id"]]
 
 
 def _public(job: dict) -> dict:

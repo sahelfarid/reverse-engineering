@@ -159,6 +159,16 @@ Manual test command:
 python -m pytest -q
 ```
 
+A few tests need a real, authorized ADB device/emulator attached and skip cleanly without one
+(see `docs/module-audits/README.md` for details).
+
+Frontend tests (`static/js/*.js`, via Vitest + jsdom, no bundler):
+
+```sh
+npm install
+npm test
+```
+
 To add a new tab: add an `adb/<area>.py` module with pure Python logic, add a `routes/<area>.py` blueprint, register it in `routes/__init__.py`, add a `<section id="tab-<area>">` in `templates/dashboard.html`, and add `static/js/<area>.js` following the existing `onTabChange` / `onDeviceChange` pattern.
 
 ## Troubleshooting

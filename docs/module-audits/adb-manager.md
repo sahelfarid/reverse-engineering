@@ -2,33 +2,16 @@
 
 Files: `adb/manager.py`
 
-Coverage: 80% (was 50%).
+Coverage: 83% (was 80% at original audit; 50% before this pass began).
 
-## Implementation
+Full implementation notes, API reference, and permanent known limitations now live in the module
+documentation: [`docs/modules/adb-manager.md`](../modules/adb-manager.md). This file tracks only what is still
+open from the original audit pass.
 
-- Centralizes ADB discovery, bundled platform-tools install, subprocess execution, serial validation, remote-shell quoting, sentinel return-code parsing, and root-shell detection.
-- `run()` and `run_binary()` use argv-list subprocess calls and never invoke a host shell.
-- `shell()` validates serials and wraps remote commands with an `__RC__` sentinel so device-side shell exit codes are visible even when `adb shell` itself exits cleanly.
-- Platform-tools download is isolated behind `download_platform_tools()` and extraction under `config.VENDOR_DIR`.
-- `install_adb()` now extracts through a new `_safe_extract()` helper that resolves every archive member against the destination directory and rejects any member (`..` segments, absolute paths) that would land outside it, before calling `zipfile.extractall()`. This closes the zip-slip gap called out below even though the download source is Google's official URL.
+## Resolved This Pass
 
-## Verified
+Added a POSIX chmod-branch test (`test_install_adb_sets_executable_bit_on_posix`) asserting `install_adb()` actually sets the executable bit after extraction, closing the last recommended-test gap for this module.
 
-- Serial validation accepts normal USB and wireless serials and rejects shell metacharacters.
-- `quote_remote()` escaping is covered.
-- `shell()` sentinel parsing is covered for zero and nonzero remote exit codes.
-- ADB lookup precedence is covered for vendor-vs-system ADB.
-- `download_platform_tools()` is covered for a successful streamed write and for `requests.RequestException` mapping to `AdbInstallError`.
-- `_safe_extract()` is covered for a zip-slip member (rejected, nothing written outside dest) and a normal nested member (extracted correctly).
-- `install_adb()` is covered for bad-zip handling and for the "executable missing after extraction" path, both asserting the temp zip is cleaned up.
-- `run()` and `run_binary()` are covered for `TimeoutExpired` mapping to `AdbError`.
+## Remaining Items
 
-## Gaps And Risks
-
-- `shell()` assumes callers quote every dynamic remote argument. Several modules do this well, but route-level tests should assert exact command strings for high-risk operations.
-- chmod-on-extract behavior (`os.name != "nt"` branch) is still untested since it requires a real extracted file; low risk, standard library call.
-
-## Recommended Tests
-
-- Command-construction tests for modules that pass user-controlled paths into `manager.shell()` (tracked per-module in the other audit files).
-- A chmod-branch test using a real temp file to assert the executable bit is set on POSIX.
+- None. Every gap and recommended test identified in the original audit has been closed -- either fixed in code (with a regression test proving the bug existed) or closed with test coverage where the gap was purely a testing hole. See the module documentation's Known Limitations section for the permanent, accepted tradeoffs that remain by design (not bugs).

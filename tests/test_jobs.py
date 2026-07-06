@@ -1,3 +1,4 @@
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -116,3 +117,52 @@ def test_run_adb_with_progress_raises_job_cancelled_after_process_exits():
         with pytest.raises(jobs.JobCancelled):
             jobs.run_adb_with_progress(job_id, "/usr/bin/adb", ["pull", "x"])
     fake_proc.terminate.assert_not_called()  # not cancelled mid-stream, so no mid-loop terminate() call
+
+
+def _fake_terminal_job(job_id, status, created_at):
+    return {
+        "id": job_id, "type": "test", "label": "", "status": status,
+        "progress": 100, "message": "", "result": None, "error": None,
+        "created_at": created_at, "_cancel_event": threading.Event(), "_process": None,
+    }
+
+
+def test_prune_drops_oldest_terminal_jobs_beyond_cap():
+    cap = jobs._MAX_RETAINED_JOBS
+    with jobs._lock:
+        jobs._jobs.clear()
+        for i in range(cap + 5):
+            jobs._jobs[f"old-{i}"] = _fake_terminal_job(f"old-{i}", "done", created_at=i)
+
+    new_id = jobs.create_job("test")  # insertion triggers _prune_locked()
+
+    try:
+        assert len(jobs._jobs) == cap
+        assert new_id in jobs._jobs  # the just-created (pending) job always survives
+        # 6 oldest dropped: the 5 pre-existing overflow plus the one just inserted.
+        for i in range(6):
+            assert f"old-{i}" not in jobs._jobs
+        assert "old-6" in jobs._jobs
+        assert f"old-{cap + 4}" in jobs._jobs  # newest terminal job kept
+    finally:
+        with jobs._lock:
+            jobs._jobs.clear()
+
+
+def test_prune_never_removes_pending_or_running_jobs():
+    cap = jobs._MAX_RETAINED_JOBS
+    with jobs._lock:
+        jobs._jobs.clear()
+        for i in range(cap + 5):
+            status = "pending" if i % 2 == 0 else "running"
+            jobs._jobs[f"live-{i}"] = _fake_terminal_job(f"live-{i}", status, created_at=i)
+
+    jobs.create_job("test")  # triggers _prune_locked(), but nothing here is terminal
+
+    try:
+        # Nothing prunable: registry is allowed to exceed the cap rather than
+        # drop a job a caller might still be polling/cancelling.
+        assert len(jobs._jobs) == cap + 6
+    finally:
+        with jobs._lock:
+            jobs._jobs.clear()

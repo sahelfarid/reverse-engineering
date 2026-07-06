@@ -1,4 +1,6 @@
 import io
+import os
+import stat
 import zipfile
 from unittest.mock import MagicMock, patch
 
@@ -133,6 +135,29 @@ def test_install_adb_raises_when_executable_missing_after_extract(tmp_path, monk
     with pytest.raises(manager.AdbInstallError, match="not found after extraction"):
         manager.install_adb()
     assert not zip_path.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="chmod executable bit is POSIX-only")
+def test_install_adb_sets_executable_bit_on_posix(tmp_path, monkeypatch):
+    zip_path = tmp_path / "platform-tools.zip"
+    vendor_dir = tmp_path / "vendor"
+
+    def fake_download(dest):
+        with zipfile.ZipFile(dest, "w") as zf:
+            zf.writestr("platform-tools/adb", "fake-binary")
+        return dest
+
+    monkeypatch.setattr(manager.config, "TEMP_DIR", tmp_path)
+    monkeypatch.setattr(manager.config, "VENDOR_DIR", vendor_dir)
+    monkeypatch.setattr(manager, "download_platform_tools", fake_download)
+    monkeypatch.setattr(manager, "get_adb_status", lambda: {"installed": True, "source": "vendor", "version": "1.0", "path": str(vendor_dir / "platform-tools" / "adb")})
+
+    manager.install_adb()
+
+    mode = (vendor_dir / "platform-tools" / "adb").stat().st_mode
+    assert mode & stat.S_IXUSR
+    assert mode & stat.S_IXGRP
+    assert mode & stat.S_IXOTH
 
 
 def test_run_maps_timeout_to_adb_error(monkeypatch):

@@ -2,24 +2,12 @@
 
 Files: `adb/properties.py`, `routes/properties.py`, `static/js/properties.js`
 
-Coverage: backend 100% (was 92%), route 100% (was 53%).
+Coverage: backend 100%, route 100% (unchanged since the previous pass).
 
-## Implementation
+Full implementation notes, API reference, and permanent known limitations now live in the module
+documentation: [`docs/modules/properties.md`](../modules/properties.md). This file tracks only what is still
+open from the original audit pass.
 
-- Reads `getprop`, parses bracketed lines, categorizes keys with ordered regex rules, and returns sorted categories plus a total count.
-- Read-only route requires login but not CSRF.
+## Remaining Items
 
-## Verified
-
-- Category precedence is covered.
-- Bracketed `getprop` line parsing is covered, including skipping non-bracketed lines and sorting entries within a category.
-- `get_properties()` is covered for the shell-failure -> `AdbError` path.
-- Route is covered for success, `AdbNotInstalledError` -> 503, `AdbError` -> 400, and login-required 401.
-
-## Gaps And Risks
-
-- Non-bracketed or OEM-specific lines are skipped silently, which is acceptable for a property viewer and remains documented as best-effort.
-
-## Recommended Tests
-
-- None outstanding for this module's Python surface.
+- None. Every gap and recommended test identified in the original audit has been closed -- either fixed in code (with a regression test proving the bug existed) or closed with test coverage where the gap was purely a testing hole. See the module documentation's Known Limitations section for the permanent, accepted tradeoffs that remain by design (not bugs).

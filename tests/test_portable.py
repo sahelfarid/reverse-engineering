@@ -1,5 +1,7 @@
+import builtins
 import json
 import socket
+import sys
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -142,3 +144,53 @@ def test_main_returns_early_when_instance_already_running(monkeypatch, capsys):
     monkeypatch.setattr(desktop, "read_lock", lambda: {"pid": 111, "port": 4242})
     assert desktop.main() == 0
     assert "already running" in capsys.readouterr().out
+
+
+def test_main_opens_pywebview_window_with_expected_url(monkeypatch):
+    monkeypatch.setattr(desktop, "read_lock", lambda: None)
+    monkeypatch.setattr(desktop.auth, "ensure_password", lambda: None)
+    monkeypatch.setattr(desktop, "pick_free_port", lambda: 54321)
+    monkeypatch.setattr(desktop.threading, "Thread", lambda target, args=(), daemon=None: MagicMock(start=lambda: None))
+    monkeypatch.setattr(desktop, "wait_until_ready", lambda port: True)
+    monkeypatch.setattr(desktop, "write_lock", lambda port: None)
+    monkeypatch.setattr(desktop, "clear_lock", lambda: None)
+
+    fake_webview = MagicMock()
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+
+    assert desktop.main() == 0
+
+    fake_webview.create_window.assert_called_once_with(
+        desktop.WINDOW_TITLE, "http://127.0.0.1:54321/", width=1280, height=860
+    )
+    fake_webview.start.assert_called_once()
+
+
+def test_main_falls_back_to_browser_when_pywebview_missing(monkeypatch):
+    monkeypatch.setattr(desktop, "read_lock", lambda: None)
+    monkeypatch.setattr(desktop.auth, "ensure_password", lambda: None)
+    monkeypatch.setattr(desktop, "pick_free_port", lambda: 54322)
+    monkeypatch.setattr(desktop.threading, "Thread", lambda target, args=(), daemon=None: MagicMock(start=lambda: None))
+    monkeypatch.setattr(desktop, "wait_until_ready", lambda port: True)
+    monkeypatch.setattr(desktop, "write_lock", lambda port: None)
+    monkeypatch.setattr(desktop, "clear_lock", lambda: None)
+    monkeypatch.delitem(sys.modules, "webview", raising=False)
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "webview":
+            raise ImportError("no pywebview")
+        return real_import(name, *args, **kwargs)
+
+    opened = {}
+    fake_webbrowser = MagicMock()
+    fake_webbrowser.open.side_effect = lambda url: opened.setdefault("url", url)
+    monkeypatch.setitem(sys.modules, "webbrowser", fake_webbrowser)
+    monkeypatch.setattr(desktop.time, "sleep", MagicMock(side_effect=KeyboardInterrupt))
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        assert desktop.main() == 0
+
+    assert opened["url"] == "http://127.0.0.1:54322/"
+    fake_webbrowser.open.assert_called_once()

@@ -2,6 +2,8 @@ import io
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from adb import manager as adb_manager
 
 
@@ -240,3 +242,42 @@ def test_download_folder_async_creates_job(auth_client):
 def test_download_folder_async_missing_path(auth_client):
     res = auth_client.get("/api/devices/s1/files/download-folder/async")
     assert res.status_code == 400
+
+
+def test_download_folder_async_run_closure_success(auth_client, tmp_path):
+    zip_path = tmp_path / "bundle.zip"
+    zip_path.write_bytes(b"PK\x03\x04fake-zip")
+    with patch("routes.files.adb_jobs.create_job", return_value="job-1"), \
+         patch("routes.files.adb_jobs.run_in_background") as mock_run, \
+         patch("routes.files.tempfile.mkdtemp", return_value=str(tmp_path)), \
+         patch("routes.files.auth.audit_log"):
+        res = auth_client.get("/api/devices/s1/files/download-folder/async?path=/sdcard/DCIM")
+    assert res.status_code == 200
+    run_closure = mock_run.call_args[0][1]
+
+    with patch("routes.files.adb_manager.find_adb", return_value=tmp_path / "adb"), \
+         patch("routes.files.adb_jobs.run_adb_with_progress") as mock_progress, \
+         patch("routes.files.adb_files.zip_folder", return_value=zip_path) as mock_zip:
+        result = run_closure("job-1")
+
+    mock_progress.assert_called_once()
+    mock_zip.assert_called_once()
+    assert result == {"file_path": str(zip_path), "download_name": "DCIM.zip", "tmp_dir": str(tmp_path)}
+    assert tmp_path.exists()  # success path leaves cleanup to the download route
+
+
+def test_download_folder_async_run_closure_cleans_up_on_failure(auth_client, tmp_path):
+    with patch("routes.files.adb_jobs.create_job", return_value="job-2"), \
+         patch("routes.files.adb_jobs.run_in_background") as mock_run, \
+         patch("routes.files.tempfile.mkdtemp", return_value=str(tmp_path)), \
+         patch("routes.files.auth.audit_log"):
+        res = auth_client.get("/api/devices/s1/files/download-folder/async?path=/sdcard/DCIM")
+    assert res.status_code == 200
+    run_closure = mock_run.call_args[0][1]
+
+    with patch("routes.files.adb_manager.find_adb", return_value=None), \
+         patch("routes.files.shutil.rmtree") as mock_rmtree:
+        with pytest.raises(adb_manager.AdbNotInstalledError):
+            run_closure("job-2")
+
+    mock_rmtree.assert_called_once_with(str(tmp_path), ignore_errors=True)

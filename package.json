@@ -1,0 +1,13 @@
+{
+  "name": "adb-device-manager-frontend-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Minimal JS test harness for the dashboard's plain-script frontend (static/js). No build step -- static/js files are loaded as classic scripts into jsdom, same as the browser.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0",
+    "vitest": "^2.1.0"
+  }
+}
