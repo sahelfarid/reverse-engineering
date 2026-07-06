@@ -2,7 +2,7 @@
 
 Files: `adb/permissions.py`, permission routes in `routes/battery.py`, frontend permission tab in dashboard assets.
 
-Coverage: backend 100% (was 35%), shared route file 86% (was 51%; remaining gap is the Clipboard endpoints in the same file).
+Coverage: backend 100% (was 35%), shared route file 100% (was 51%).
 
 ## Implementation
 

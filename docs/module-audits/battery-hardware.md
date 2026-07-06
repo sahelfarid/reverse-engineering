@@ -2,7 +2,7 @@
 
 Files: `adb/battery.py`, `routes/battery.py`, `static/js/battery.js`
 
-Coverage: backend 100% (was 15%), route 63% (was 51%; `routes/battery.py` is shared with the Permissions and Clipboard modules and will finish climbing when those passes land).
+Coverage: backend 100% (was 15%), route 100% (was 51%; `routes/battery.py` is shared with the Permissions and Clipboard modules, both now also fully covered).
 
 ## Implementation
 
