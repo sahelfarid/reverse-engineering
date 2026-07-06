@@ -36,7 +36,10 @@ def screenshot(serial):
 @auth.csrf_protect
 def record_start(serial):
     data = request.get_json(silent=True) or {}
-    time_limit = int(data.get("time_limit_sec", 180))
+    try:
+        time_limit = int(data.get("time_limit_sec", 180))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid_time_limit_sec"}), 400
     result, err = _wrap(adb_screen.start_recording, serial, time_limit_sec=time_limit)
     if err:
         return err
@@ -71,6 +74,10 @@ def record_pull(serial):
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return err
     response = send_file(local_path, as_attachment=True, download_name=local_path.name)
+    # send_file()'s direct_passthrough=True makes Werkzeug skip the
+    # ClosingIterator that calls Response.close() -- without this,
+    # call_on_close() below would never fire (see docs/module-audits/files.md).
+    response.direct_passthrough = False
 
     @response.call_on_close
     def _cleanup():
@@ -84,7 +91,10 @@ def _simple_action_route(name, fn, parse_args=None):
     @auth.csrf_protect
     def handler(serial):
         data = request.get_json(silent=True) or {}
-        args = parse_args(data) if parse_args else ()
+        try:
+            args = parse_args(data) if parse_args else ()
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid_arguments"}), 400
         result, err = _wrap(fn, serial, *args)
         if err:
             return err
