@@ -135,6 +135,20 @@ def install_adb() -> dict:
     return status
 
 
+def run_binary(args: list[str], timeout: int | None = None) -> subprocess.CompletedProcess:
+    """Like run(), but captures stdout as raw bytes (for screencap/binary transfers)."""
+    adb_path = find_adb()
+    if adb_path is None:
+        raise AdbNotInstalledError("adb is not installed")
+    try:
+        return subprocess.run(
+            [str(adb_path), *args],
+            capture_output=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AdbError(f"adb command timed out: {' '.join(args)}") from exc
+
+
 def run(args: list[str], timeout: int | None = None) -> subprocess.CompletedProcess:
     """Run adb with argv-list args (never a shell string). Raises AdbNotInstalledError if missing."""
     adb_path = find_adb()
