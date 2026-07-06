@@ -2,7 +2,7 @@
 
 Files: `adb/manager.py`
 
-Coverage: 50%.
+Coverage: 80% (was 50%).
 
 ## Implementation
 
@@ -10,6 +10,7 @@ Coverage: 50%.
 - `run()` and `run_binary()` use argv-list subprocess calls and never invoke a host shell.
 - `shell()` validates serials and wraps remote commands with an `__RC__` sentinel so device-side shell exit codes are visible even when `adb shell` itself exits cleanly.
 - Platform-tools download is isolated behind `download_platform_tools()` and extraction under `config.VENDOR_DIR`.
+- `install_adb()` now extracts through a new `_safe_extract()` helper that resolves every archive member against the destination directory and rejects any member (`..` segments, absolute paths) that would land outside it, before calling `zipfile.extractall()`. This closes the zip-slip gap called out below even though the download source is Google's official URL.
 
 ## Verified
 
@@ -17,15 +18,17 @@ Coverage: 50%.
 - `quote_remote()` escaping is covered.
 - `shell()` sentinel parsing is covered for zero and nonzero remote exit codes.
 - ADB lookup precedence is covered for vendor-vs-system ADB.
+- `download_platform_tools()` is covered for a successful streamed write and for `requests.RequestException` mapping to `AdbInstallError`.
+- `_safe_extract()` is covered for a zip-slip member (rejected, nothing written outside dest) and a normal nested member (extracted correctly).
+- `install_adb()` is covered for bad-zip handling and for the "executable missing after extraction" path, both asserting the temp zip is cleaned up.
+- `run()` and `run_binary()` are covered for `TimeoutExpired` mapping to `AdbError`.
 
 ## Gaps And Risks
 
-- Platform-tools download, zip extraction, chmod, and bad-zip handling are untested.
 - `shell()` assumes callers quote every dynamic remote argument. Several modules do this well, but route-level tests should assert exact command strings for high-risk operations.
-- `install_adb()` extracts a downloaded zip. Python's `zipfile.extractall()` can be sensitive to malicious zip members if the source were compromised; the source is Google's official URL, but defensive member path validation would reduce supply-chain blast radius.
+- chmod-on-extract behavior (`os.name != "nt"` branch) is still untested since it requires a real extracted file; low risk, standard library call.
 
 ## Recommended Tests
 
-- Mocked `requests.get()` and `zipfile.ZipFile` tests for successful install, bad zip, network failure, missing executable, and chmod on non-Windows.
-- Command-construction tests for modules that pass user-controlled paths into `manager.shell()`.
-- Timeout tests for `run()` and `run_binary()` mapping `TimeoutExpired` to `AdbError`.
+- Command-construction tests for modules that pass user-controlled paths into `manager.shell()` (tracked per-module in the other audit files).
+- A chmod-branch test using a real temp file to assert the executable bit is set on POSIX.

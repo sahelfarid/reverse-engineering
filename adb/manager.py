@@ -110,12 +110,23 @@ def download_platform_tools(dest_zip: Path, chunk_size: int = 1 << 16) -> Path:
     return dest_zip
 
 
+def _safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract zf into dest, rejecting members that would escape dest via
+    ".." segments or absolute paths (zip-slip)."""
+    dest_resolved = dest.resolve()
+    for member in zf.namelist():
+        member_path = (dest_resolved / member).resolve()
+        if member_path != dest_resolved and dest_resolved not in member_path.parents:
+            raise AdbInstallError(f"Unsafe path in platform-tools archive: {member!r}")
+    zf.extractall(dest)
+
+
 def install_adb() -> dict:
     zip_path = config.TEMP_DIR / "platform-tools.zip"
     try:
         download_platform_tools(zip_path)
         with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(config.VENDOR_DIR)
+            _safe_extract(zf, config.VENDOR_DIR)
     except zipfile.BadZipFile as exc:
         raise AdbInstallError(f"Downloaded file is not a valid zip: {exc}") from exc
     finally:
