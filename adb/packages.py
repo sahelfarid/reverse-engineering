@@ -127,6 +127,11 @@ def launch_app(serial: str, package: str) -> dict:
     return {"ok": ok, "output": (stdout + stderr).strip()[:500]}
 
 
+def restart_app(serial: str, package: str) -> dict:
+    force_stop(serial, package)
+    return launch_app(serial, package)
+
+
 def pull_apk(serial: str, package: str, local_dir: Path) -> Path:
     apk_path = get_apk_path(serial, package)
     if not apk_path:
