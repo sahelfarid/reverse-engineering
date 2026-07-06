@@ -171,6 +171,12 @@ def preview(serial):
             return err
 
         response = send_file(local_path, as_attachment=False)
+        # send_file() defaults to direct_passthrough, which makes Werkzeug's
+        # get_app_iter() skip the ClosingIterator that calls Response.close()
+        # -- so call_on_close() below would silently never fire. Disabling it
+        # keeps Range/conditional support but routes the body through the
+        # iterator path that actually triggers cleanup.
+        response.direct_passthrough = False
 
         @response.call_on_close
         def _remove_tmp():
@@ -193,6 +199,7 @@ def download(serial):
         return err
     auth.audit_log("file_download", {"serial": serial, "path": path})
     response = send_file(local_path, as_attachment=True, download_name=local_path.name)
+    response.direct_passthrough = False  # see comment in preview() -- required for call_on_close to fire
 
     @response.call_on_close
     def _remove_tmp():
@@ -229,6 +236,7 @@ def download_folder(serial):
 
     auth.audit_log("file_download_folder", {"serial": serial, "path": path})
     response = send_file(zip_path, as_attachment=True, download_name=f"{folder_name}.zip")
+    response.direct_passthrough = False  # see comment in preview() -- required for call_on_close to fire
 
     @response.call_on_close
     def _remove_tmp():

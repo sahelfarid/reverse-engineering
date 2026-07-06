@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 136 tests passed, total coverage 62%, as of the shell pass.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 185 tests passed, total coverage 69%, as of the files pass. That pass also found and fixed a real bug: `send_file()`'s `direct_passthrough` mode silently prevented `call_on_close()` temp-directory cleanup from ever running in `routes/files.py`; the same pattern likely affects `routes/backup.py`, `routes/packages.py`, `routes/jobs.py`, and `routes/screen.py` and should be checked when those modules are passed over.
 
 ## Coverage Summary
 
@@ -26,7 +26,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | ADB manager | 80% | n/a |
 | Devices and dashboard | devices 89%, dashboard 98% | routes/devices 97% |
 | Shell | 100% | routes/shell 93% |
-| Files | 36% | routes/files 24% |
+| Files | 98% | routes/files 89% |
 | Packages | 39% | routes/packages 35% |
 | App inspector | 13% | routes/app_inspector 46% |
 | Logcat | 32% | routes/logcat 39% |
