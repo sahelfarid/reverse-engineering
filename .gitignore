@@ -9,3 +9,4 @@ data/
 *.log
 .claude/
 .pytest_cache/
+TODO.md
