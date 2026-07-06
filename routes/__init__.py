@@ -5,6 +5,7 @@ from . import devices  # noqa: F401
 from . import files  # noqa: F401
 from . import logcat  # noqa: F401
 from . import packages  # noqa: F401
+from . import properties  # noqa: F401
 from . import screen  # noqa: F401
 from . import shell  # noqa: F401
 
@@ -19,3 +20,4 @@ def register_blueprints(app):
     app.register_blueprint(logcat.bp)
     app.register_blueprint(screen.bp)
     app.register_blueprint(automation.bp)
+    app.register_blueprint(properties.bp)
