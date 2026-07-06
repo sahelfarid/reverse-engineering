@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 421 tests passed, total coverage 91%, as of the clipboard pass, which also completes `routes/battery.py` (shared by Battery/Hardware, Permissions, and Clipboard) at 100%. Real bugs found and fixed so far: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`, `routes/backup.py`; only `routes/jobs.py` still needs the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, unvalidated `int()` parsing in screen/automation/network routes could turn a bad request into a 500, port validators didn't enforce the 0-65535 range, four mutating network routes were missing audit logging entirely, `export_app_data()`'s root-tar fallback discarded its return code, and permission grant/revoke only checked stderr for failure text.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 440 tests passed, total coverage 91%, as of the process-manager pass (no code bugs found there; the "malformed PID" concern from the original audit was investigated and confirmed unreachable thanks to Flask's `<int:pid>` route converter). Real bugs found and fixed in earlier passes: the `send_file()`/`direct_passthrough` temp-cleanup bug (fixed in `routes/files.py`, `routes/packages.py`, `routes/screen.py`, `routes/backup.py`; only `routes/jobs.py` still needs the same check), `pull_apk()` could return a nonexistent path, `get_permissions()`'s "requested permissions" regex bled into the next dumpsys section header, an invalid logcat query regex could crash the SSE stream, unvalidated `int()` parsing in screen/automation/network routes could turn a bad request into a 500, port validators didn't enforce the 0-65535 range, four mutating network routes were missing audit logging entirely, `export_app_data()`'s root-tar fallback discarded its return code, and permission grant/revoke only checked stderr for failure text.
 
 ## Coverage Summary
 
@@ -38,7 +38,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Battery and hardware | 100% | routes/battery 100% |
 | Permissions | 100% | routes/battery 100% |
 | Clipboard | 95% | routes/battery 100% |
-| Process manager | 64% | routes/process_manager 50% |
+| Process manager | 93% | routes/process_manager 100% |
 | Jobs | 61% | routes/jobs 50% |
 | Root detection | 82% | routes/root_detection 53% |
 | Frida | 45% | routes/frida 43% |
