@@ -142,7 +142,7 @@ def pull_apk(serial: str, package: str, local_dir: Path) -> Path:
         raise manager.AdbError(f"pull failed: {proc.stderr.strip()[:300]}")
     dest = local_dir / f"{package}.apk"
     pulled_name = local_dir / Path(apk_path).name
-    if pulled_name.exists():
-        pulled_name.rename(dest)
-        return dest
-    return pulled_name
+    if not pulled_name.exists():
+        raise manager.AdbError(f"pulled apk not found in destination directory for {package}")
+    pulled_name.rename(dest)
+    return dest

@@ -16,7 +16,7 @@ Result (original audit): 71 tests passed in 1.13s. Total measured Python coverag
 
 The system shell did not have `python`, `pytest`, or `coverage` available, so verification used a local `.venv` created from `requirements.txt` plus `coverage`.
 
-**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 185 tests passed, total coverage 69%, as of the files pass. That pass also found and fixed a real bug: `send_file()`'s `direct_passthrough` mode silently prevented `call_on_close()` temp-directory cleanup from ever running in `routes/files.py`; the same pattern likely affects `routes/backup.py`, `routes/packages.py`, `routes/jobs.py`, and `routes/screen.py` and should be checked when those modules are passed over.
+**Update (in progress):** gaps identified below are being closed module by module -- see each audit file's "Verified"/"Gaps And Risks" sections for what has landed. Latest run: 216 tests passed, total coverage 74%, as of the packages pass. The `send_file()`/`direct_passthrough` temp-cleanup bug found in `routes/files.py` was confirmed and fixed in `routes/packages.py` too; `routes/backup.py`, `routes/jobs.py`, and `routes/screen.py` still need the same check. `pull_apk()` also had a real bug (returned a `Path` to a file that might not exist) fixed in this pass.
 
 ## Coverage Summary
 
@@ -27,7 +27,7 @@ The system shell did not have `python`, `pytest`, or `coverage` available, so ve
 | Devices and dashboard | devices 89%, dashboard 98% | routes/devices 97% |
 | Shell | 100% | routes/shell 93% |
 | Files | 98% | routes/files 89% |
-| Packages | 39% | routes/packages 35% |
+| Packages | 99% | routes/packages 91% |
 | App inspector | 13% | routes/app_inspector 46% |
 | Logcat | 32% | routes/logcat 39% |
 | Screen | 24% | routes/screen 49% |

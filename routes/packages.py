@@ -146,6 +146,10 @@ def pull_apk(serial, package):
         return err
     auth.audit_log("package_pull_apk", {"serial": serial, "package": package})
     response = send_file(local_path, as_attachment=True, download_name=local_path.name)
+    # send_file()'s direct_passthrough=True makes Werkzeug skip the
+    # ClosingIterator that calls Response.close() -- without this,
+    # call_on_close() below would never fire (see docs/module-audits/files.md).
+    response.direct_passthrough = False
 
     @response.call_on_close
     def _cleanup():
