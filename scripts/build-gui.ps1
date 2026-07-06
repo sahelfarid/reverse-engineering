@@ -1,92 +1,98 @@
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
-# Compact Build GUI
-# - Enter a build command, click Start to run it in a background process
-# - Live stdout/stderr shown, Stop kills the process
-
-[void][System.Reflection.Assembly]::LoadWithPartialName('System.Diagnostics')
+$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Runner = Join-Path $PSScriptRoot "run.ps1"
+$script:Process = $null
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Build Launcher'
-$form.Size = New-Object System.Drawing.Size(700,480)
-$form.StartPosition = 'CenterScreen'
+$form.Text = "ADB Device Manager Build"
+$form.Size = New-Object System.Drawing.Size(760, 500)
+$form.StartPosition = "CenterScreen"
+$form.MinimumSize = New-Object System.Drawing.Size(680, 420)
 
-$lbl = New-Object System.Windows.Forms.Label
-$lbl.Text = 'Build command:'
-$lbl.AutoSize = $true
-$lbl.Location = New-Object System.Drawing.Point(10,12)
-$form.Controls.Add($lbl)
+$modeBox = New-Object System.Windows.Forms.GroupBox
+$modeBox.Text = "Python mode"
+$modeBox.Location = New-Object System.Drawing.Point(12, 10)
+$modeBox.Size = New-Object System.Drawing.Size(260, 58)
+$form.Controls.Add($modeBox)
 
-$txtCmd = New-Object System.Windows.Forms.TextBox
-$txtCmd.Location = New-Object System.Drawing.Point(12,30)
-$txtCmd.Size = New-Object System.Drawing.Size(560,24)
-$txtCmd.Text = 'py -3 -m pip install -r requirements.txt' # sensible default, change as needed
-$form.Controls.Add($txtCmd)
+$venvRadio = New-Object System.Windows.Forms.RadioButton
+$venvRadio.Text = "Managed .venv"
+$venvRadio.Checked = $true
+$venvRadio.Location = New-Object System.Drawing.Point(12, 24)
+$venvRadio.AutoSize = $true
+$modeBox.Controls.Add($venvRadio)
 
-$btnStart = New-Object System.Windows.Forms.Button
-$btnStart.Location = New-Object System.Drawing.Point(580,28)
-$btnStart.Size = New-Object System.Drawing.Size(90,24)
-$btnStart.Text = 'Start'
-$form.Controls.Add($btnStart)
+$systemRadio = New-Object System.Windows.Forms.RadioButton
+$systemRadio.Text = "Active/system Python"
+$systemRadio.Location = New-Object System.Drawing.Point(130, 24)
+$systemRadio.AutoSize = $true
+$modeBox.Controls.Add($systemRadio)
 
-$txtOutput = New-Object System.Windows.Forms.TextBox
-$txtOutput.Multiline = $true
-$txtOutput.ScrollBars = 'Both'
-$txtOutput.ReadOnly = $true
-$txtOutput.WordWrap = $false
-$txtOutput.Font = New-Object System.Drawing.Font('Consolas',9)
-$txtOutput.Location = New-Object System.Drawing.Point(12,64)
-$txtOutput.Size = New-Object System.Drawing.Size(660,330)
-$form.Controls.Add($txtOutput)
+$status = New-Object System.Windows.Forms.Label
+$status.Text = "Idle"
+$status.Location = New-Object System.Drawing.Point(290, 32)
+$status.Size = New-Object System.Drawing.Size(440, 24)
+$form.Controls.Add($status)
 
-$btnStop = New-Object System.Windows.Forms.Button
-$btnStop.Location = New-Object System.Drawing.Point(12,408)
-$btnStop.Size = New-Object System.Drawing.Size(90,28)
-$btnStop.Text = 'Stop'
-$btnStop.Enabled = $false
-$form.Controls.Add($btnStop)
+$buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+$buttons.Location = New-Object System.Drawing.Point(12, 78)
+$buttons.Size = New-Object System.Drawing.Size(720, 74)
+$buttons.Anchor = "Top,Left,Right"
+$buttons.WrapContents = $true
+$form.Controls.Add($buttons)
 
-$btnClear = New-Object System.Windows.Forms.Button
-$btnClear.Location = New-Object System.Drawing.Point(110,408)
-$btnClear.Size = New-Object System.Drawing.Size(90,28)
-$btnClear.Text = 'Clear'
-$form.Controls.Add($btnClear)
+$output = New-Object System.Windows.Forms.TextBox
+$output.Multiline = $true
+$output.ScrollBars = "Both"
+$output.ReadOnly = $true
+$output.WordWrap = $false
+$output.Font = New-Object System.Drawing.Font("Consolas", 9)
+$output.Location = New-Object System.Drawing.Point(12, 160)
+$output.Size = New-Object System.Drawing.Size(720, 250)
+$output.Anchor = "Top,Bottom,Left,Right"
+$form.Controls.Add($output)
 
-$btnOpenLog = New-Object System.Windows.Forms.Button
-$btnOpenLog.Location = New-Object System.Drawing.Point(208,408)
-$btnOpenLog.Size = New-Object System.Drawing.Size(90,28)
-$btnOpenLog.Text = 'Save Log'
-$form.Controls.Add($btnOpenLog)
+$bottom = New-Object System.Windows.Forms.FlowLayoutPanel
+$bottom.Location = New-Object System.Drawing.Point(12, 420)
+$bottom.Size = New-Object System.Drawing.Size(720, 34)
+$bottom.Anchor = "Bottom,Left,Right"
+$form.Controls.Add($bottom)
 
-$lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Location = New-Object System.Drawing.Point(320,412)
-$lblStatus.Size = New-Object System.Drawing.Size(350,24)
-$lblStatus.Text = 'Idle'
-$form.Controls.Add($lblStatus)
-
-# state
-$global:proc = $null
-$global:outEvents = @()
-
-function Append-Output($s){
-    if ($null -eq $s) { return }
-    $action = [action]{ param($text) $txtOutput.AppendText($text + "`r`n") }
-    $form.BeginInvoke($action, $s) | Out-Null
+function Append-Output {
+    param([string]$Text)
+    if ($null -eq $Text) { return }
+    $form.BeginInvoke([action]{
+        $output.AppendText($Text + [Environment]::NewLine)
+        $output.SelectionStart = $output.TextLength
+        $output.ScrollToCaret()
+    }) | Out-Null
 }
 
-function Start-Build($command){
-    if ($global:proc -ne $null -and -not $global:proc.HasExited){
-        Append-Output 'A build is already running.'
+function Set-Running {
+    param([bool]$Running, [string]$Text)
+    $form.BeginInvoke([action]{
+        foreach ($control in $buttons.Controls) { $control.Enabled = -not $Running }
+        $stopBtn.Enabled = $Running
+        $status.Text = $Text
+    }) | Out-Null
+}
+
+function Start-Action {
+    param([string]$Action, [bool]$DesktopDeps = $false)
+    if ($script:Process -ne $null -and -not $script:Process.HasExited) {
+        Append-Output "Another action is already running."
         return
     }
 
-    $lblStatus.Text = 'Starting...'
-    $txtOutput.Clear()
+    $args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$Runner`"", "-Action", $Action)
+    if ($systemRadio.Checked) { $args += "-UseSystemPython" }
+    if ($DesktopDeps) { $args += "-DesktopDeps" }
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    # run under cmd to allow shell commands and path expansion; for unix-like commands use pwsh/sh explicitly
-    $psi.FileName = 'cmd.exe'
-    $psi.Arguments = "/c $command"
+    $psi.FileName = "powershell.exe"
+    $psi.Arguments = ($args -join " ")
+    $psi.WorkingDirectory = $RepoRoot
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
@@ -95,75 +101,70 @@ function Start-Build($command){
     $p = New-Object System.Diagnostics.Process
     $p.StartInfo = $psi
     $p.EnableRaisingEvents = $true
+    $p.add_OutputDataReceived([System.Diagnostics.DataReceivedEventHandler]{ param($s, $e) if ($e.Data) { Append-Output $e.Data } })
+    $p.add_ErrorDataReceived([System.Diagnostics.DataReceivedEventHandler]{ param($s, $e) if ($e.Data) { Append-Output "[ERR] $($e.Data)" } })
+    $p.add_Exited([System.EventHandler]{ param($s, $e) Set-Running $false "Finished with exit code $($s.ExitCode)" })
 
-    $outHandler = [System.Diagnostics.DataReceivedEventHandler]::new( {
-        param($sender,$args)
-        if ($args.Data){ Append-Output $args.Data }
-    })
-    $errHandler = [System.Diagnostics.DataReceivedEventHandler]::new( {
-        param($sender,$args)
-        if ($args.Data){ Append-Output "[ERR] $($args.Data)" }
-    })
-
-    $exitedHandler = [System.EventHandler]::new( {
-        param($sender,$args)
-        $form.BeginInvoke([action]{ $lblStatus.Text = 'Finished' }) | Out-Null
-        $form.BeginInvoke([action]{ $btnStart.Enabled = $true; $btnStop.Enabled = $false }) | Out-Null
-    })
-
-    $p.add_OutputDataReceived($outHandler)
-    $p.add_ErrorDataReceived($errHandler)
-    $p.add_Exited($exitedHandler)
-
-    $started = $p.Start()
-    if ($started){
-        $global:proc = $p
-        $p.BeginOutputReadLine()
-        $p.BeginErrorReadLine()
-        $lblStatus.Text = 'Running'
-        $btnStart.Enabled = $false
-        $btnStop.Enabled = $true
-        Append-Output "Started: $command"
-    } else {
-        Append-Output 'Failed to start process.'
-    }
+    $output.Clear()
+    Append-Output "Repo: $RepoRoot"
+    Append-Output "Action: $Action"
+    Set-Running $true "Running $Action..."
+    [void]$p.Start()
+    $script:Process = $p
+    $p.BeginOutputReadLine()
+    $p.BeginErrorReadLine()
 }
 
-function Stop-Build(){
-    if ($global:proc -ne $null -and -not $global:proc.HasExited){
-        try{
-            $global:proc.Kill()
-            Append-Output 'Process killed by user.'
-            $lblStatus.Text = 'Killed'
-            $btnStart.Enabled = $true
-            $btnStop.Enabled = $false
-        } catch {
-            Append-Output "Failed to stop process: $_"
-        }
-    } else {
-        Append-Output 'No running process.'
-    }
+function New-ActionButton {
+    param([string]$Text, [string]$Action, [bool]$DesktopDeps = $false)
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $Text
+    $btn.Size = New-Object System.Drawing.Size(136, 30)
+    $btn.Add_Click({ Start-Action $Action $DesktopDeps }.GetNewClosure())
+    $buttons.Controls.Add($btn)
 }
 
-$btnStart.Add_Click({
-    $cmd = $txtCmd.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($cmd)){
-        Append-Output 'Please enter a command.'
-        return
+New-ActionButton "Install deps" "install" $true
+New-ActionButton "Run web app" "web" $false
+New-ActionButton "Run desktop" "desktop" $true
+New-ActionButton "Run tests" "test" $false
+New-ActionButton "Build Windows" "build-windows" $true
+
+$stopBtn = New-Object System.Windows.Forms.Button
+$stopBtn.Text = "Stop"
+$stopBtn.Size = New-Object System.Drawing.Size(90, 28)
+$stopBtn.Enabled = $false
+$stopBtn.Add_Click({
+    if ($script:Process -ne $null -and -not $script:Process.HasExited) {
+        $script:Process.Kill()
+        Append-Output "Stopped by user."
+        Set-Running $false "Stopped"
     }
-    Start-Build $cmd
 })
+$bottom.Controls.Add($stopBtn)
 
-$btnStop.Add_Click({ Stop-Build })
+$clearBtn = New-Object System.Windows.Forms.Button
+$clearBtn.Text = "Clear"
+$clearBtn.Size = New-Object System.Drawing.Size(90, 28)
+$clearBtn.Add_Click({ $output.Clear() })
+$bottom.Controls.Add($clearBtn)
 
-$btnClear.Add_Click({ $txtOutput.Clear() })
+$saveBtn = New-Object System.Windows.Forms.Button
+$saveBtn.Text = "Save log"
+$saveBtn.Size = New-Object System.Drawing.Size(90, 28)
+$saveBtn.Add_Click({
+    $dialog = New-Object System.Windows.Forms.SaveFileDialog
+    $dialog.Filter = "Text files|*.txt|All files|*.*"
+    $dialog.FileName = "adb-device-manager-build-log.txt"
+    if ($dialog.ShowDialog() -eq "OK") {
+        [System.IO.File]::WriteAllText($dialog.FileName, $output.Text)
+    }
+})
+$bottom.Controls.Add($saveBtn)
 
-$btnOpenLog.Add_Click({
-    $sfd = New-Object System.Windows.Forms.SaveFileDialog
-    $sfd.Filter = 'Text files|*.txt|All files|*.*'
-    $sfd.FileName = 'build-log.txt'
-    if ($sfd.ShowDialog() -eq 'OK'){
-        [System.IO.File]::WriteAllText($sfd.FileName, $txtOutput.Text)
+$form.Add_FormClosing({
+    if ($script:Process -ne $null -and -not $script:Process.HasExited) {
+        $script:Process.Kill()
     }
 })
 

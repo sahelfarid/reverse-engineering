@@ -1,146 +1,183 @@
 # ADB Device Manager
 
-A local Flask web panel for browsing and managing Android devices over ADB:
-device detection/auto-install, file browsing/transfer, a shell terminal, APK
-management, an app inspector, live logcat, screen tools, input automation,
-device properties, network/wireless tools, backups, hardware/battery info,
-runtime permissions, clipboard, process management, background jobs, and
-settings — see `features.md` for the original feature spec this implements.
+A local Flask panel for browsing, testing, and managing Android devices over ADB. It includes device discovery, file transfer, shell access, package/app inspection, logcat streaming, screen tools, input automation, backups, network tools, permissions, clipboard helpers, process management, Frida instrumentation, and a portable desktop wrapper.
 
-**This is a local developer tool, not a hosted service.** It binds to
-`127.0.0.1` only and must never be exposed on a public network — it can run
-an interactive root shell and read/write arbitrary files on any device you
-connect.
+**This is a local developer tool, not a hosted service.** It binds to `127.0.0.1` only and must never be exposed on a public network. It can run privileged shell actions and modify connected devices, so login, CSRF protection, and audit logging stay enabled even in the desktop build.
 
-## Setup
+## Quick Start
 
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1 -Action web
 ```
+
+Linux/macOS:
+
+```sh
+sh scripts/run.sh web
+```
+
+The scripts default to a managed `.venv`, install dependencies, and start the web panel at `http://127.0.0.1:5000`. On first run, a random login password is printed once and stored hashed in `data/settings.json`.
+
+To use the active/system Python instead of `.venv`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1 -Action web -UseSystemPython
+```
+
+```sh
+sh scripts/run.sh web --system-python
+```
+
+Manual setup still works:
+
+```sh
 pip install -r requirements.txt
 python app.py
 ```
 
-On first run, a random login password is generated and printed once to the
-console (hashed and stored in `data/settings.json`). Change it later from the
-Settings tab. Open `http://127.0.0.1:5000`.
+If ADB is not installed or on `PATH`, the Dashboard offers an **Install ADB** button. It downloads Google's official platform-tools zip into `vendor/platform-tools/` without admin rights or system PATH changes.
 
-If ADB isn't installed/on PATH, the Dashboard's status card offers an
-**Install ADB** button — it downloads Google's official `platform-tools` zip
-for your OS into `vendor/platform-tools/` and uses that directly. No admin
-rights, no system PATH changes.
+## Desktop App And Builds
 
-## Architecture
+The desktop app is a thin `pywebview` shell around the same Flask app. It runs `desktop.py`, picks a free loopback port, starts the server in a background thread, and opens a native webview window. The web app remains the source of truth.
 
-```
-app.py               Flask app factory, binds 127.0.0.1 only
-config.py             paths + data/settings.json persistence
-auth.py                session login, CSRF (X-CSRF-Token header), audit log
-adb/                   pure-Python ADB logic, no Flask imports
-  manager.py             find/install adb, safe subprocess exec (run/shell/run_binary)
-  devices.py              `adb devices -l` parsing, fastboot, per-device props/battery/storage
-  dashboard.py             composite overview queries (cpu/mem, screen, foreground app, wifi)
-  shell.py                 shell terminal command execution (+ su)
-  files.py                 ls -la parsing, browse/CRUD/pull/push/zip
-  packages.py               dumpsys package parsing, install/uninstall/enable/disable/launch
-  app_inspector.py          permissions/components/data-dir inspection for one app
-  logcat.py                  threadtime parsing + live streaming generator
-  screen.py                  screenshot/recording/rotation/wake/brightness
-  automation.py               tap/swipe/text/keyevent + macro record/playback
-  properties.py                getprop categorization
-  network.py / wireless.py     network info, port forwarding, tcpip/connect, known devices
-  backup.py                     common folder/logcat/apk/app-data/database exports
-  battery.py / permissions.py / clipboard.py
-  process_manager.py            ps parsing + kill
-  jobs.py                        in-memory background job registry (progress/cancel)
-routes/                Flask blueprints, one module per adb/ area, all under /api/...
-templates/, static/    server-rendered shell + vanilla JS per tab (no build step)
-tests/                 pytest suite for the parsing/safety-critical logic
+Run desktop mode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1 -Action desktop -DesktopDeps
 ```
 
-### Security model
+```sh
+sh scripts/run.sh desktop --desktop-deps
+```
 
-- Every page requires login (session cookie); every mutating request
-  (`POST`/`PUT`/`PATCH`/`DELETE`) requires a matching `X-CSRF-Token` header,
-  issued at login and injected by `static/js/app.js`'s `apiFetch()` helper.
-- Every privileged action (shell exec, installs, deletes, permission
-  changes, wireless connects, etc.) is appended to `data/audit.log` and
-  viewable from the Settings tab.
-- **No shell string concatenation.** `adb` is always invoked with argv lists
-  (`subprocess.run([adb_path, ...])`); dynamic values passed into `adb shell`
-  are quoted with `shlex.quote()` and built into a single command string
-  before being passed as one argv element (adb re-joins multiple args into
-  one string before handing it to the device's shell, so passing them
-  separately would not be safe against spaces/metacharacters). File
-  transfer always goes through `adb pull`/`push` (the sync protocol), never
-  `shell cat`, so the remote shell is only ever used for metadata.
-- Package names, device serials, and port specs are validated against strict
-  regexes before use.
+Compact launchers:
 
-## API surface
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-gui.ps1
+```
 
-All routes are `/api/...` and return JSON except file/image/zip downloads.
-Grouped by area (see the corresponding `routes/*.py` for exact signatures):
+```sh
+sh scripts/build-gui.sh
+```
 
-- **Auth/core**: login, logout, change-password, adb status/install, settings, audit log
-- **Devices**: list, per-device detail, per-device overview
-- **Shell**: su-available, exec
-- **Files**: browse, search, mkdir, delete, rename, move, copy, upload, download, download-folder (+ `/async` job variant), preview
-- **Packages**: list, install (+ `/async`), uninstall, disable/enable, clear-data, force-stop, launch, restart, pull APK, size
-- **App Inspector**: permissions/components/data-dir detail
-- **Logcat**: SSE stream (tag/pid/package/min_level/query filters), clear
-- **Screen**: screenshot, record start/stop/status/pull, rotate/auto-rotate, wake/sleep, brightness
-- **Automation**: tap/swipe/long-press/text/keyevent, screen-size, macros CRUD + play
-- **Properties**: categorized getprop
-- **Network/Wireless**: info, ping, forward/reverse rules, tcpip, connect/disconnect, known devices
-- **Backup**: common folder export, logcat dump, APK export, database export, app-data export (+ `/async`)
-- **Battery/Permissions/Clipboard**: hardware detail, grant/revoke, clipboard read/write/history
-- **Processes**: list, kill, foreground app
-- **Jobs**: list, get, cancel, download result
+Build portable packages:
 
-## Known limitations
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1 -Action build-windows -DesktopDeps
+```
 
-These are inherent to Android/ADB, not gaps to "fix":
+```sh
+sh scripts/run.sh build --desktop-deps
+```
 
-- **Clipboard read** is a best-effort raw `service call clipboard 2` binder
-  call; Android 10+ restricts clipboard reads to the focused app, so this
-  fails on many devices/OS versions by design, not by bug.
-- **Clipboard write** has no built-in ADB command at all — it requires a
-  third-party helper app (e.g. "Clipper") listening for a broadcast.
-- **App data / database export** requires the target app to be debuggable
-  (`run-as`) or the device to be rooted (`su`); otherwise it fails with a
-  clear error rather than silently no-op'ing.
-- **`ls -la` / `ps` / `dumpsys` parsing** is best-effort across the wide
-  range of toybox/busybox/OEM variants; unparseable lines are still shown
-  (as `type: "unknown"`) rather than dropped, with a "best effort" banner.
-- **Job cancellation** only preempts steps backed by a live subprocess
-  handle (adb pull/install). A step run via a blocking shell call (e.g. the
-  `tar` step in app-data export) can't be interrupted mid-call — cancel
-  takes effect once that call returns.
-- **Root shell (`su`) actions** only work on rooted devices/emulators;
-  everywhere else they degrade gracefully with an explicit error.
+PyInstaller cannot cross-compile, so each OS must build its own spec: `build/windows.spec`, `build/macos.spec`, or `build/linux.spec`. Outputs land in `dist/`. The GitHub Actions workflow `.github/workflows/desktop-build.yml` builds artifacts on Windows, macOS, and Linux. Builds are unsigned in v1, so Windows SmartScreen and macOS Gatekeeper may warn on first launch.
 
-## Troubleshooting
+Desktop dependencies live in `requirements-desktop.txt`; web-only usage only needs `requirements.txt`. Writable app data moves to per-user app-data directories in frozen builds, while templates and static files are bundled read-only.
 
-- **"ADB not installed" won't clear after clicking Install** — check your
-  network access to `dl.google.com`; the button downloads platform-tools
-  directly from Google.
-- **Device shows "unauthorized"** — accept the RSA key prompt on the
-  device's screen, then hit Refresh.
-- **Device shows "offline"** — unplug/replug, or `adb kill-server` and
-  reconnect (there's no in-app kill-server button by design, since it would
-  drop every device, not just one).
-- **Permission denied browsing a folder** — expected for protected system
-  paths on a non-rooted device; navigate elsewhere.
-- **Uploads rejected** — check the Max upload size setting in the Settings tab.
+## Features
+
+- Device discovery, fastboot detection, per-device model/build/battery/storage detail.
+- File browser with upload/download, folder export, preview, search, rename, move, copy, mkdir, and delete.
+- Shell terminal with safe ADB invocation and optional rooted `su` usage.
+- Package management: install, uninstall, enable/disable, clear data, force-stop, launch, restart, APK pull, and size inspection.
+- App inspector for permissions, components, data directory access, databases, and backup paths.
+- Live logcat over SSE with tag, pid, package, level, and regex filters.
+- Screen tools: screenshot, recording, rotation, wake/sleep, brightness.
+- Input automation: tap, swipe, text, keyevents, macro record/save/play/import/export.
+- Properties, network, wireless ADB, port forward/reverse, known wireless devices.
+- Backups for common folders, logcat dumps, APKs, app data, and databases, with background jobs where useful.
+- Battery/hardware, runtime permissions, clipboard best-effort helpers, and process listing/killing.
+- Frida tab for authorized dynamic instrumentation on rooted devices.
+- Desktop wrapper and PyInstaller build pipeline for portable local app usage.
+
+See `features.md` and the modules under `adb/`, `routes/`, and `static/js/` for implementation details.
+
+## Frida Instrumentation
+
+Frida support is for authorized testing on your own devices and apps. Classic `frida-server` requires a rooted device; non-root Frida Gadget APK repackaging is not part of v1.
+
+The Frida tab can:
+
+- Report whether the Python `frida` package is installed and which version is active.
+- Resolve and cache the matching Android `frida-server` binary under `vendor/frida/<version>/<arch>/`.
+- Push/start/stop `/data/local/tmp/frida-server` using a captured PID, not `killall`.
+- List attach targets through Frida with an ADB process-list fallback.
+- Attach to a running PID or spawn by package name.
+- Load JavaScript hooks, stream `console.log` / `send()` output through SSE, and detach sessions.
+- Save user scripts in `data/frida_scripts/` and provide read-only starter templates with authorized-testing copy.
+
+Mutating Frida routes require login and CSRF, and attach/script actions audit the target and script hash rather than storing full script source in the audit log.
+
+## API Surface
+
+All routes are `/api/...` and return JSON except file/image/zip downloads and SSE streams. Grouped by area:
+
+- **Auth/core**: login, logout, change-password, ADB status/install, settings, audit log.
+- **Devices**: list, per-device detail, overview.
+- **Shell**: su-available, exec.
+- **Files**: browse, search, mkdir, delete, rename, move, copy, upload, download, folder download, preview.
+- **Packages**: list, install, uninstall, disable/enable, clear-data, force-stop, launch, restart, pull APK, size.
+- **App Inspector**: permissions/components/data-dir detail.
+- **Logcat**: SSE stream and clear.
+- **Screen**: screenshot, record start/stop/status/pull, rotate, wake/sleep, brightness.
+- **Automation**: tap/swipe/long-press/text/keyevent, screen-size, macros CRUD/play.
+- **Properties**: categorized `getprop`.
+- **Network/Wireless**: info, ping, forward/reverse, tcpip, connect/disconnect, known devices.
+- **Backup**: common folder, logcat, APK, database, app-data exports.
+- **Battery/Permissions/Clipboard**: hardware detail, grant/revoke, clipboard read/write/history.
+- **Processes**: list, kill, foreground app.
+- **Frida**: status, server push/start/stop, process list, attach, SSE stream, detach, script CRUD.
+- **Jobs**: list, get, cancel, download result.
+
+## Security Model
+
+- Every page requires login.
+- Every mutating request requires an `X-CSRF-Token` header. The frontend uses `apiFetch()` in `static/js/app.js` to attach it.
+- Privileged actions are appended to `data/audit.log` and visible from Settings.
+- ADB is invoked with argv lists. Dynamic values used inside `adb shell` commands are quoted before being passed as a single remote command string.
+- Device serials, package names, process IDs, port specs, and script names are validated before use where they cross trust boundaries.
+- The desktop window is only a local HTTP client; it does not weaken the server-side login/CSRF/audit model.
 
 ## Development
 
-```
-pip install -r requirements.txt
-pytest tests/
+Run tests:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1 -Action test
 ```
 
-To add a new tab: add an `adb/<area>.py` module (pure Python, built on
-`adb/manager.py`'s `run`/`shell`/`run_binary`), a `routes/<area>.py`
-blueprint registered in `routes/__init__.py`, a `<section id="tab-<area>">`
-in `templates/dashboard.html`, and a `static/js/<area>.js` following the
-existing `onTabChange`/`onDeviceChange` pattern used by every other tab.
+```sh
+sh scripts/run.sh test
+```
+
+Manual test command:
+
+```sh
+python -m pytest -q
+```
+
+To add a new tab: add an `adb/<area>.py` module with pure Python logic, add a `routes/<area>.py` blueprint, register it in `routes/__init__.py`, add a `<section id="tab-<area>">` in `templates/dashboard.html`, and add `static/js/<area>.js` following the existing `onTabChange` / `onDeviceChange` pattern.
+
+## Troubleshooting
+
+- **ADB not installed**: use the Dashboard install button, or check network access to `dl.google.com`.
+- **Device unauthorized**: accept the RSA key prompt on the device and refresh.
+- **Device offline**: reconnect USB or restart the ADB server externally.
+- **Permission denied browsing files**: protected paths require root; navigate elsewhere or use a rooted test device.
+- **Uploads rejected**: check Max upload size in Settings.
+- **Desktop build fails on Linux**: install WebKitGTK/PyGObject dependencies for pywebview.
+- **Frida server will not start**: confirm the device is rooted, online, and the Python `frida` package is installed.
+- **Frida version mismatch**: delete the cached server under `vendor/frida/` and let the app download the binary matching the installed Python package.
+
+## Known Limitations
+
+- Clipboard read is best-effort and restricted on Android 10+.
+- Clipboard write requires a helper app listening for a broadcast.
+- App data/database export requires `run-as` support or root.
+- `ls`, `ps`, and `dumpsys` parsing is best-effort across OEM variants.
+- Job cancellation only interrupts steps backed by live subprocess handles.
+- Root shell actions require rooted devices or emulators.
+- Frida Gadget/non-root APK repackaging, codesigning/notarization, tray mode, and auto-update are out of scope for v1.

@@ -69,11 +69,13 @@ function renderFridaTab() {
   loadFridaProcesses(serial);
 }
 
-function setFridaConsole(text, append = false) {
+function setFridaConsole(text, append = false, type = 'info') {
   const out = document.getElementById('frida-console');
   if (!out) return;
   if (!append) out.innerHTML = '';
   const line = document.createElement('div');
+  const colors = { send: '#35c46a', error: '#e0563d', info: '#d8dee9', message: '#4f8cff' };
+  line.style.color = colors[type] || colors.info;
   line.textContent = text;
   out.appendChild(line);
   out.scrollTop = out.scrollHeight;
@@ -236,9 +238,9 @@ function startFridaStream(sessionId) {
     const entry = JSON.parse(event.data);
     const msg = entry.message || {};
     if (msg.type === 'heartbeat') return;
-    if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true);
-    else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true);
-    else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true);
+    if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
+    else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
+    else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
   };
 }
 
