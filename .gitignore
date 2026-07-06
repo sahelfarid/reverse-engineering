@@ -10,3 +10,4 @@ data/
 .claude/
 .pytest_cache/
 TODO.md
+dist/

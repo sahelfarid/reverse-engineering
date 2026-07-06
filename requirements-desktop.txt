@@ -1,0 +1,7 @@
+# Desktop-shell + packaging dependencies (kept separate from requirements.txt so
+# the web-only / server deployment path needs no GUI toolkit).
+-r requirements.txt
+
+pywebview>=5.0      # native OS webview wrapper (WebView2 / WKWebView / WebKitGTK)
+psutil>=5.9         # reliable cross-platform PID-liveness check for the single-instance lock
+pyinstaller>=6.0    # build the frozen, double-click-to-run executable

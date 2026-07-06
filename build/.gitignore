@@ -1,0 +1,4 @@
+# PyInstaller writes intermediate work dirs (build/<spec-name>/) here at build
+# time. Keep the spec files, helpers, and icons/ -- ignore everything else.
+*/
+!icons/

@@ -6,7 +6,15 @@ from routes import register_blueprints
 
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    # Resolve templates/static through config's frozen-aware paths instead of
+    # Flask's default relative-to-__file__ lookup, which breaks once the app is
+    # packaged (assets live in the PyInstaller extraction dir, not next to a
+    # frozen executable).
+    app = Flask(
+        __name__,
+        template_folder=str(config.TEMPLATE_DIR),
+        static_folder=str(config.STATIC_DIR),
+    )
     app.secret_key = config.generate_secret_key()
     register_blueprints(app)
     return app

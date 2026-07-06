@@ -1,9 +1,54 @@
 import json
+import os
 import platform
 import secrets
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+APP_NAME = "AdbDeviceManager"
+
+
+def is_frozen() -> bool:
+    """True when running from a PyInstaller (or similar) frozen bundle."""
+    return getattr(sys, "frozen", False)
+
+
+def bundle_dir() -> Path:
+    """Directory holding read-only bundled assets (templates/, static/).
+
+    Under PyInstaller, assets added as `datas` live in the extraction dir
+    exposed as sys._MEIPASS (onefile) or next to the executable (onedir).
+    In a normal checkout they sit beside this file.
+    """
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent
+
+
+def user_data_dir() -> Path:
+    """Per-user, writable location for state that must survive across runs.
+
+    A frozen onefile build wipes its extraction dir between launches, so
+    writable state (generated password, settings, known devices, macros,
+    downloaded platform-tools/apktool/frida-server) must NOT live there.
+    """
+    system = platform.system()
+    if system == "Windows":
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / APP_NAME
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
+    return Path(base) / "adb-device-manager"
+
+
+BUNDLE_DIR = bundle_dir()
+TEMPLATE_DIR = BUNDLE_DIR / "templates"
+STATIC_DIR = BUNDLE_DIR / "static"
+
+# Writable root: the repo dir in a normal checkout (unchanged behaviour), a
+# per-user app-data dir when frozen so state persists across runs/updates.
+BASE_DIR = user_data_dir() if is_frozen() else BUNDLE_DIR
 VENDOR_DIR = BASE_DIR / "vendor"
 TEMP_DIR = BASE_DIR / "temp"
 DATA_DIR = BASE_DIR / "data"
