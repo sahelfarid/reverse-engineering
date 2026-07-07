@@ -3,6 +3,7 @@
 let APKTOOL_PACKAGES = [];
 let APKTOOL_PROJECT = null;
 let APKTOOL_PATH = '';
+let APKTOOL_SUBNAV = null;
 
 function renderApktoolTab() {
   const pane = document.getElementById('tab-apktool');
@@ -14,87 +15,97 @@ function renderApktoolTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="alert warn">Authorized testing only. Decompile, edit, rebuild, and reinstall APKs you own or are explicitly allowed to test.</div>
-    <div class="card-grid">
-      <div class="card" style="grid-column: span 2;">
-        <h3>Tooling</h3>
-        <div id="apktool-tab-status" class="muted">Checking...</div>
-        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-          <button id="apktool-refresh-status-btn">Refresh status</button>
-          <button id="apktool-install-btn">Install APKTool</button>
-        </div>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>APKTool</h2>
+        <p class="muted">Decompile, edit, rebuild, and reinstall APKs you own or are explicitly allowed to test.</p>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Decompile package</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <input type="text" id="apktool-package-filter" placeholder="Filter packages..." style="flex:1; min-width:180px;">
-          <select id="apktool-package-select" style="flex:2; min-width:260px;"></select>
-          <button id="apktool-load-packages-btn">Refresh packages</button>
-          <button id="apktool-decompile-btn">Decompile</button>
-        </div>
+      <div id="apktool-signing-status" class="muted"></div>
+      <div id="apktool-subnav"></div>
+    </div>
+  `;
+  APKTOOL_SUBNAV = createSubNav(document.getElementById('apktool-subnav'), 'adbpanel.subnav.apktool', [
+    { key: 'decompile', label: 'Decompile', render: (body) => renderApktoolDecompileView(body, serial) },
+    { key: 'projects', label: 'Projects', render: (body) => renderApktoolProjectsView(body, serial) },
+    { key: 'editor', label: 'Editor', render: (body) => renderApktoolEditorView(body) },
+  ]);
+  if (typeof refreshApktoolStatus === 'function') refreshApktoolStatus();
+  loadApktoolSigningStatus();
+}
+
+function renderApktoolDecompileView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <input type="text" id="apktool-package-filter" placeholder="Filter packages..." style="flex:1; min-width:180px;">
+        <select id="apktool-package-select" style="flex:2; min-width:260px;"></select>
+        <button id="apktool-load-packages-btn">Refresh packages</button>
+        <button id="apktool-decompile-btn">Decompile</button>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Projects</h3>
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <button id="apktool-refresh-projects-btn">Refresh projects</button>
-          <button id="apktool-rebuild-btn" disabled>Rebuild</button>
-          <button id="apktool-reinstall-btn" disabled>Reinstall signed APK</button>
-          <button id="apktool-delete-project-btn" disabled>Delete project</button>
-        </div>
-        <div id="apktool-projects-body" class="muted">Loading...</div>
+    </section>`;
+  document.getElementById('apktool-load-packages-btn').addEventListener('click', () => loadApktoolPackages(serial));
+  document.getElementById('apktool-package-filter').addEventListener('input', renderApktoolPackageSelect);
+  document.getElementById('apktool-decompile-btn').addEventListener('click', () => startApktoolDecompile(serial));
+  loadApktoolPackages(serial);
+}
+
+function renderApktoolProjectsView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Projects</h3></div></div>
+      <div class="toolbar-row">
+        <button id="apktool-refresh-projects-btn">Refresh projects</button>
+        <button id="apktool-rebuild-btn" disabled>Rebuild</button>
+        <button id="apktool-reinstall-btn" disabled>Reinstall signed APK</button>
+        <button id="apktool-delete-project-btn" disabled>Delete project</button>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Project browser</h3>
-        <div class="breadcrumbs" id="apktool-breadcrumbs"></div>
+      <div id="apktool-projects-body" class="muted">Loading...</div>
+    </section>
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Project browser</h3></div></div>
+      <div class="breadcrumbs" id="apktool-breadcrumbs"></div>
+      <div class="table-wrap auto-height">
         <table>
           <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Action</th></tr></thead>
           <tbody id="apktool-browser-body"><tr><td colspan="4" class="muted">Open a project.</td></tr></tbody>
         </table>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Editor</h3>
-        <div class="muted" id="apktool-editor-path">No file open</div>
-        <textarea id="apktool-editor" spellcheck="false" style="width:100%; min-height:360px; font-family:Consolas, monospace;"></textarea>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button id="apktool-save-file-btn" disabled>Save file</button>
-        </div>
-      </div>
-    </div>
-  `;
-  wireApktoolControls(serial);
-  loadApktoolStatus();
-  loadApktoolPackages(serial);
-  loadApktoolProjects();
-}
-
-function wireApktoolControls(serial) {
-  document.getElementById('apktool-refresh-status-btn').addEventListener('click', loadApktoolStatus);
-  document.getElementById('apktool-install-btn').addEventListener('click', installApktool);
-  document.getElementById('apktool-load-packages-btn').addEventListener('click', () => loadApktoolPackages(serial));
-  document.getElementById('apktool-package-filter').addEventListener('input', renderApktoolPackageSelect);
-  document.getElementById('apktool-decompile-btn').addEventListener('click', () => startApktoolDecompile(serial));
+    </section>`;
   document.getElementById('apktool-refresh-projects-btn').addEventListener('click', loadApktoolProjects);
   document.getElementById('apktool-rebuild-btn').addEventListener('click', startApktoolRebuild);
   document.getElementById('apktool-reinstall-btn').addEventListener('click', () => reinstallApktoolProject(serial));
   document.getElementById('apktool-delete-project-btn').addEventListener('click', deleteApktoolProject);
+  if (APKTOOL_PROJECT) {
+    document.getElementById('apktool-rebuild-btn').disabled = false;
+    document.getElementById('apktool-reinstall-btn').disabled = false;
+    document.getElementById('apktool-delete-project-btn').disabled = false;
+  }
+  loadApktoolProjects();
+  if (APKTOOL_PROJECT) browseApktoolProject();
+}
+
+function renderApktoolEditorView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="muted" id="apktool-editor-path">No file open</div>
+      <textarea id="apktool-editor" spellcheck="false" style="width:100%; min-height:360px; font-family:Consolas, monospace;"></textarea>
+      <div class="section-actions justify-start">
+        <button id="apktool-save-file-btn" disabled class="primary-btn">Save file</button>
+      </div>
+    </section>`;
   document.getElementById('apktool-save-file-btn').addEventListener('click', saveApktoolFile);
 }
 
-async function loadApktoolStatus() {
-  const el = document.getElementById('apktool-tab-status');
+async function loadApktoolSigningStatus() {
+  const el = document.getElementById('apktool-signing-status');
   if (!el) return;
   const res = await apiFetch('/api/apktool/status');
   const status = await res.json();
-  const java = status.java || {};
-  const tool = status.apktool || {};
   const signing = status.signing || {};
   el.innerHTML = `
-    Java: ${java.installed ? `<span class="badge green">${escapeHtml(java.version || 'installed')}</span>` : '<span class="badge red">missing</span>'}
-    APKTool: ${tool.installed ? `<span class="badge green">${escapeHtml(tool.version || tool.pinned_version)}</span>` : '<span class="badge red">missing</span>'}
     Signing: ${signing.available ? `<span class="badge green">${escapeHtml(signing.preferred)}</span>` : '<span class="badge red">missing</span>'}
     Zipalign: ${signing.zipalign ? 'yes' : 'optional'}
   `;
-  if (typeof renderApktoolStatus === 'function') renderApktoolStatus(status);
 }
 
 async function loadApktoolPackages(serial) {
@@ -193,6 +204,10 @@ async function openApktoolFile(path) {
   const res = await apiFetch(`/api/apktool/projects/${encodeURIComponent(APKTOOL_PROJECT)}/file?path=${encodeURIComponent(path)}`);
   const data = await res.json();
   if (!data.ok) { toast(`Open failed: ${data.error}`, 'error'); return; }
+  // The editor lives behind its own sub-nav pill now -- switch to it so the
+  // freshly-loaded content is actually visible, instead of writing into a
+  // detached DOM (the Editor view isn't mounted while on another pill).
+  if (APKTOOL_SUBNAV) APKTOOL_SUBNAV.activate('editor');
   document.getElementById('apktool-editor-path').textContent = path;
   document.getElementById('apktool-editor-path').dataset.path = path;
   document.getElementById('apktool-editor').value = data.content || '';

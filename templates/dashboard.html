@@ -34,7 +34,6 @@
 
       <li class="nav-group-label" data-group="network">Network</li>
       <li data-tab="network" data-group="network" data-requires-device="true">Network</li>
-      <li data-tab="wireless" data-group="network">Wireless</li>
 
       <li class="nav-group-label" data-group="system">System</li>
       <li data-tab="settings" data-group="system">Settings</li>
@@ -50,10 +49,10 @@
   <main class="content">
     <header class="topbar">
       <div class="status-strip">
-        <div id="adb-status-card" class="status-card">Checking ADB status...</div>
-        <div id="apktool-status-card" class="status-card">Checking APKTool...</div>
-        <div id="jadx-status-card" class="status-card">Checking JADX...</div>
-        <div id="frida-tool-status-card" class="status-card">Checking Frida...</div>
+        <div id="adb-status-card" class="status-card" data-tool-status="adb" data-tool-status-scope="topbar">Checking ADB status...</div>
+        <div id="apktool-status-card" class="status-card" data-tool-status="apktool" data-tool-status-scope="topbar">Checking APKTool...</div>
+        <div id="jadx-status-card" class="status-card" data-tool-status="jadx" data-tool-status-scope="topbar">Checking JADX...</div>
+        <div id="frida-tool-status-card" class="status-card" data-tool-status="frida" data-tool-status-scope="topbar">Checking Frida...</div>
       </div>
       <div class="device-picker">
         <select id="device-select"></select>
@@ -74,7 +73,6 @@
     <section id="tab-automation" class="tab-pane"></section>
     <section id="tab-properties" class="tab-pane"></section>
     <section id="tab-network" class="tab-pane"></section>
-    <section id="tab-wireless" class="tab-pane"></section>
     <section id="tab-backup" class="tab-pane"></section>
     <section id="tab-battery" class="tab-pane"></section>
     <section id="tab-permissions" class="tab-pane"></section>
@@ -102,6 +100,7 @@
 <script src="{{ url_for('static', filename='js/network.js') }}"></script>
 <script src="{{ url_for('static', filename='js/backup.js') }}"></script>
 <script src="{{ url_for('static', filename='js/battery.js') }}"></script>
+<script src="{{ url_for('static', filename='js/media.js') }}"></script>
 <script src="{{ url_for('static', filename='js/processes.js') }}"></script>
 <script src="{{ url_for('static', filename='js/frida.js') }}"></script>
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>

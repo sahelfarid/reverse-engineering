@@ -16,30 +16,32 @@ function renderFilesTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div class="breadcrumbs" id="files-breadcrumbs"></div>
-      <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-        <input type="text" id="files-path-input" style="flex:1; min-width:220px;">
-        <button id="files-go-btn">Go</button>
-        <button id="files-up-btn">Up</button>
-        <button id="files-refresh-btn">Refresh</button>
-        <button id="files-mkdir-btn">New folder</button>
-        <label class="ghost-btn" style="display:inline-block;">Upload<input type="file" id="files-upload-input" style="display:none;"></label>
-        <input type="text" id="files-search-input" placeholder="Search filename…" style="width:160px;">
-        <button id="files-search-btn">Search</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Files</h2>
+        <p class="muted">Browse, edit, and transfer files on the device's storage.</p>
       </div>
-      <div id="files-alert"></div>
-      <div id="files-search-results"></div>
-      <table>
-        <thead><tr><th></th><th>Name</th><th>Size</th><th>Modified</th><th>Perms</th><th>Actions</th></tr></thead>
-        <tbody id="files-table-body"></tbody>
-      </table>
-    </div>
-    <div id="preview-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; align-items:center; justify-content:center;">
-      <div class="card" style="max-width:80vw; max-height:80vh; overflow:auto;">
-        <button id="preview-close-btn">Close</button>
-        <div id="preview-body"></div>
-      </div>
+      <section class="panel-section">
+        <div class="breadcrumbs" id="files-breadcrumbs"></div>
+        <div class="toolbar-row">
+          <input type="text" id="files-path-input" style="flex:1; min-width:220px;">
+          <button id="files-go-btn">Go</button>
+          <button id="files-up-btn">Up</button>
+          <button id="files-refresh-btn">Refresh</button>
+          <button id="files-mkdir-btn">New folder</button>
+          <label class="ghost-btn upload-label">Upload<input type="file" id="files-upload-input" style="display:none;"></label>
+          <input type="text" id="files-search-input" placeholder="Search filename…" style="width:160px;">
+          <button id="files-search-btn">Search</button>
+        </div>
+        <div id="files-alert"></div>
+        <div id="files-search-results"></div>
+        <div class="table-wrap auto-height">
+          <table>
+            <thead><tr><th></th><th>Name</th><th>Size</th><th>Modified</th><th>Perms</th><th>Actions</th></tr></thead>
+            <tbody id="files-table-body"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   `;
   wireFilesToolbar(serial);
@@ -85,9 +87,6 @@ function wireFilesToolbar(serial) {
   });
   document.getElementById('files-search-btn').addEventListener('click', () => runSearch(serial));
   document.getElementById('files-search-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(serial); });
-  document.getElementById('preview-close-btn').addEventListener('click', () => {
-    document.getElementById('preview-modal').style.display = 'none';
-  });
 }
 
 async function runSearch(serial) {
@@ -229,10 +228,8 @@ async function handleFileAction(serial, path, isDir, action, currentPath) {
 }
 
 async function openPreview(serial, path) {
-  const modal = document.getElementById('preview-modal');
-  const body = document.getElementById('preview-body');
-  body.innerHTML = 'Loading preview…';
-  modal.style.display = 'flex';
+  const modalEl = openModal(path.split('/').pop(), 'Loading preview…');
+  const body = modalEl.querySelector('.modal-body');
   const url = `/api/devices/${encodeURIComponent(serial)}/files/preview?path=${encodeURIComponent(path)}`;
   try {
     const res = await fetch(url, { credentials: 'same-origin' });

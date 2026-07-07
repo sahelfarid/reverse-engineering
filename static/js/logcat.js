@@ -6,6 +6,13 @@ let logcatPaused = false;
 
 const LOGCAT_LEVEL_COLOR = { V: '#9aa1ab', D: '#4f8cff', I: '#35c46a', W: '#e0b13d', E: '#e0563d', F: '#e0563d' };
 
+Object.assign(TIP_REGISTRY, {
+  'logcat.filters': {
+    title: 'Logcat filters',
+    body: '<p>Tag, PID, and Package filter the stream server-side. If you give a Package with no PID, the server resolves its current PID for you; giving both skips that lookup.</p><p>The search box applies a regex against each line client-side.</p>',
+  },
+});
+
 function renderLogcatTab() {
   const pane = document.getElementById('tab-logcat');
   if (!pane) return;
@@ -21,26 +28,33 @@ function renderLogcatTab() {
   logcatLines = [];
 
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-        <input type="text" id="logcat-tag" placeholder="Tag">
-        <input type="text" id="logcat-pid" placeholder="PID">
-        <input type="text" id="logcat-package" placeholder="Package">
-        <select id="logcat-level">
-          <option value="V">Verbose+</option><option value="D">Debug+</option>
-          <option value="I" selected>Info+</option><option value="W">Warn+</option>
-          <option value="E">Error+</option><option value="F">Fatal</option>
-        </select>
-        <input type="text" id="logcat-query" placeholder="Regex search…" style="flex:1; min-width:150px;">
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Logcat</h2>
+        <p class="muted">Stream the device log live, filtered by tag, PID, package, level, or a regex query.</p>
       </div>
-      <div style="display:flex; gap:8px; margin-bottom:8px;">
-        <button id="logcat-start-btn">Start</button>
-        <button id="logcat-pause-btn">Pause</button>
-        <button id="logcat-clear-btn">Clear device log</button>
-        <button id="logcat-clear-view-btn">Clear view</button>
-        <button id="logcat-export-btn">Export</button>
-      </div>
-      <pre id="logcat-output" class="shell-output"></pre>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <input type="text" id="logcat-tag" placeholder="Tag">
+          <input type="text" id="logcat-pid" placeholder="PID">
+          <input type="text" id="logcat-package" placeholder="Package">
+          <select id="logcat-level">
+            <option value="V">Verbose+</option><option value="D">Debug+</option>
+            <option value="I" selected>Info+</option><option value="W">Warn+</option>
+            <option value="E">Error+</option><option value="F">Fatal</option>
+          </select>
+          <input type="text" id="logcat-query" placeholder="Regex search…" style="flex:1; min-width:150px;">
+          <button type="button" class="tip-btn" data-tip-key="logcat.filters" aria-label="Help">?</button>
+        </div>
+        <div class="toolbar-row">
+          <button id="logcat-start-btn">Start</button>
+          <button id="logcat-pause-btn">Pause</button>
+          <button id="logcat-clear-btn">Clear device log</button>
+          <button id="logcat-clear-view-btn">Clear view</button>
+          <button id="logcat-export-btn">Export</button>
+        </div>
+        <pre id="logcat-output" class="shell-output"></pre>
+      </section>
     </div>
   `;
   wireLogcatControls(serial);

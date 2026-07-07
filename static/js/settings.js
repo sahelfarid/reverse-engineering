@@ -10,6 +10,21 @@ function renderSettingsTab() {
         <p class="muted">Configure paths and limits, rotate credentials, and review privileged activity on this panel.</p>
       </div>
       <div class="panel-grid settings-grid">
+        <section class="panel-section settings-tooling">
+          <div class="section-head">
+            <div>
+              <h3>Tooling</h3>
+              <p class="section-desc">External tool status. Installed tools stay here only; anything needing attention also stays in the topbar.</p>
+            </div>
+          </div>
+          <div class="card-grid">
+            <div id="adb-status-card-settings" class="status-card" data-tool-status="adb" data-tool-status-scope="settings">Checking…</div>
+            <div id="apktool-status-card-settings" class="status-card" data-tool-status="apktool" data-tool-status-scope="settings">Checking…</div>
+            <div id="jadx-status-card-settings" class="status-card" data-tool-status="jadx" data-tool-status-scope="settings">Checking…</div>
+            <div id="frida-tool-status-card-settings" class="status-card" data-tool-status="frida" data-tool-status-scope="settings">Checking…</div>
+          </div>
+        </section>
+
         <section class="panel-section settings-general">
           <div class="section-head">
             <div>
@@ -88,6 +103,10 @@ function renderSettingsTab() {
   loadSettingsForm();
   loadAuditLog();
   loadJobsPanel();
+  refreshAdbStatus();
+  refreshApktoolStatus();
+  refreshJadxToolStatus();
+  refreshFridaToolStatus();
   document.getElementById('settings-save-btn').addEventListener('click', saveSettingsForm);
   document.getElementById('settings-change-password-btn').addEventListener('click', changePassword);
   document.getElementById('settings-audit-refresh-btn').addEventListener('click', loadAuditLog);

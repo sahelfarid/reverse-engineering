@@ -10,17 +10,25 @@ function renderProcessesTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:8px;">
-        <input type="text" id="processes-filter" placeholder="Filter by name or pid…" style="flex:1;">
-        <button id="processes-refresh-btn">Refresh</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Processes</h2>
+        <p class="muted">Running processes on the device, with per-process signal actions.</p>
       </div>
-      <div id="processes-foreground" class="muted" style="margin-bottom:8px;"></div>
-      <div id="processes-alert"></div>
-      <table>
-        <thead><tr><th>PID</th><th>PPID</th><th>User</th><th>RSS (KB)</th><th>Name</th><th>Actions</th></tr></thead>
-        <tbody id="processes-table-body"><tr><td colspan="6">Loading…</td></tr></tbody>
-      </table>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <input type="text" id="processes-filter" placeholder="Filter by name or pid…" style="flex:1;">
+          <button id="processes-refresh-btn">Refresh</button>
+        </div>
+        <div id="processes-foreground" class="muted" style="margin-bottom:8px;"></div>
+        <div id="processes-alert"></div>
+        <div class="table-wrap auto-height">
+          <table>
+            <thead><tr><th>PID</th><th>PPID</th><th>User</th><th>RSS (KB)</th><th>Name</th><th>Actions</th></tr></thead>
+            <tbody id="processes-table-body"><tr><td colspan="6">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   `;
   document.getElementById('processes-refresh-btn').addEventListener('click', () => { loadProcesses(serial); loadForegroundApp(serial); });

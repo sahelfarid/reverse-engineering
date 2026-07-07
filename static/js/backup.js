@@ -1,5 +1,12 @@
 // Backup tab: one-click exports for common media folders, logcat, APKs, app data/databases.
 
+Object.assign(TIP_REGISTRY, {
+  'backup.appdata': {
+    title: 'App data / database export',
+    body: '<p>Requires the target app to be debuggable (uses <code>run-as</code>) or the device to be rooted; otherwise this fails with a clear error.</p><p>"…as background job" runs the same export as a cancellable job you can track from Settings → Background jobs, useful for large app data.</p>',
+  },
+});
+
 function renderBackupTab() {
   const pane = document.getElementById('tab-backup');
   if (!pane) return;
@@ -10,48 +17,70 @@ function renderBackupTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card-grid">
-      <div class="card">
-        <h4>Common folders</h4>
-        <div id="backup-targets" style="display:flex; gap:6px; flex-wrap:wrap;">Loading…</div>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Backup</h2>
+        <p class="muted">One-click exports for common media folders, logs, APKs, and app data/databases.</p>
       </div>
-      <div class="card">
-        <h4>Logs</h4>
-        <button id="backup-logcat-btn">Export logcat</button>
-      </div>
-      <div class="card">
-        <h4>APK export</h4>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="backup-apk-package" placeholder="com.example.app" style="flex:1;">
-          <button id="backup-apk-btn">Export APK</button>
-        </div>
-      </div>
-      <div class="card">
-        <h4>App data / database (needs debuggable app or root)</h4>
-        <div style="display:flex; gap:8px; margin-bottom:6px;">
-          <input type="text" id="backup-data-package" placeholder="Package" style="flex:1;">
-          <button id="backup-appdata-btn">Export app data (.tar.gz)</button>
-          <button id="backup-appdata-async-btn" title="Run as a cancellable background job (Settings tab)">…as background job</button>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="backup-db-name" placeholder="Database file name" style="flex:1;">
-          <button id="backup-db-btn">Export database</button>
-        </div>
-        <div id="backup-limitation" class="alert info" style="margin-top:8px;">
-          Requires the target app to be debuggable (uses run-as) or the device to be rooted; otherwise this will fail with a clear error.
-        </div>
-      </div>
+      <div id="backup-subnav"></div>
     </div>
   `;
+  createSubNav(document.getElementById('backup-subnav'), 'adbpanel.subnav.backup', [
+    { key: 'folders', label: 'Folders', render: (body) => renderBackupFoldersView(body, serial) },
+    { key: 'logs', label: 'Logs', render: (body) => renderBackupLogsView(body, serial) },
+    { key: 'apk', label: 'APK export', render: (body) => renderBackupApkView(body, serial) },
+    { key: 'appdata', label: 'App data', render: (body) => renderBackupAppDataView(body, serial) },
+  ]);
+}
+
+function renderBackupFoldersView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Common folders</h3><p class="section-desc">One click zips and downloads the whole folder.</p></div></div>
+      <div id="backup-targets" class="toolbar-row">Loading…</div>
+    </section>`;
   loadBackupTargets(serial);
+}
+
+function renderBackupLogsView(body, serial) {
+  body.innerHTML = `<section class="panel-section"><button id="backup-logcat-btn">Export logcat</button></section>`;
   document.getElementById('backup-logcat-btn').addEventListener('click', () => {
     window.location.href = `/api/devices/${encodeURIComponent(serial)}/backup/logcat`;
   });
+}
+
+function renderBackupApkView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <input type="text" id="backup-apk-package" placeholder="com.example.app" style="flex:1;">
+        <button id="backup-apk-btn">Export APK</button>
+      </div>
+    </section>`;
   document.getElementById('backup-apk-btn').addEventListener('click', () => {
     const pkg = document.getElementById('backup-apk-package').value.trim();
     if (!pkg) return;
     window.location.href = `/api/devices/${encodeURIComponent(serial)}/backup/apk/${encodeURIComponent(pkg)}`;
   });
+}
+
+function renderBackupAppDataView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div><h3>App data / database</h3></div>
+        <button type="button" class="tip-btn" data-tip-key="backup.appdata" aria-label="Help">?</button>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="backup-data-package" placeholder="Package" style="flex:1;">
+        <button id="backup-appdata-btn">Export app data (.tar.gz)</button>
+        <button id="backup-appdata-async-btn" title="Run as a cancellable background job (Settings tab)">…as background job</button>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="backup-db-name" placeholder="Database file name" style="flex:1;">
+        <button id="backup-db-btn">Export database</button>
+      </div>
+    </section>`;
   document.getElementById('backup-appdata-btn').addEventListener('click', async () => {
     const pkg = document.getElementById('backup-data-package').value.trim();
     if (!pkg) return;

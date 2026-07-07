@@ -16,14 +16,6 @@ function renderJadxTab() {
     <div class="alert warn">Authorized analysis only. Decompile and inspect APKs you own or are explicitly allowed to test.</div>
     <div class="card-grid">
       <div class="card" style="grid-column: span 2;">
-        <h3>Tooling</h3>
-        <div id="jadx-tab-status" class="muted">Checking...</div>
-        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-          <button id="jadx-refresh-status-btn">Refresh status</button>
-          <button id="jadx-install-btn">Install jadx</button>
-        </div>
-      </div>
-      <div class="card" style="grid-column: span 2;">
         <h3>Decompile from device</h3>
         ${hasDevice ? `
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -99,14 +91,12 @@ function renderJadxTab() {
     </div>
   `;
   wireJadxControls(serial);
-  loadJadxStatus();
+  if (typeof refreshJadxToolStatus === 'function') refreshJadxToolStatus();
   if (hasDevice) loadJadxPackages(serial);
   loadJadxProjects();
 }
 
 function wireJadxControls(serial) {
-  document.getElementById('jadx-refresh-status-btn').addEventListener('click', loadJadxStatus);
-  document.getElementById('jadx-install-btn').addEventListener('click', installJadx);
   const loadPkgsBtn = document.getElementById('jadx-load-packages-btn');
   if (loadPkgsBtn) loadPkgsBtn.addEventListener('click', () => loadJadxPackages(serial));
   const filterEl = document.getElementById('jadx-package-filter');
@@ -124,23 +114,7 @@ function wireJadxControls(serial) {
   document.getElementById('jadx-export-md-btn').addEventListener('click', () => exportJadxReport('md'));
 }
 
-async function loadJadxStatus() {
-  const el = document.getElementById('jadx-tab-status');
-  if (!el) return;
-  const res = await apiFetch('/api/jadx/status');
-  const status = await res.json();
-  const java = status.java || {};
-  const tool = status.jadx || {};
-  el.innerHTML = `
-    Java: ${java.installed ? `<span class="badge green">${escapeHtml(java.version || 'installed')}</span>` : '<span class="badge red">missing</span>'}
-    jadx: ${tool.installed ? `<span class="badge green">${escapeHtml(tool.version || tool.pinned_version)} (${escapeHtml(tool.source || '')})</span>` : '<span class="badge red">missing</span>'}
-  `;
-  if (typeof renderJadxToolStatus === 'function') renderJadxToolStatus(status);
-}
-
 async function installJadx() {
-  const btn = document.getElementById('jadx-install-btn');
-  if (btn) btn.disabled = true;
   try {
     const res = await apiFetch('/api/jadx/install', { method: 'POST' });
     const data = await res.json();
@@ -148,8 +122,7 @@ async function installJadx() {
   } catch (err) {
     toast(`jadx install failed: ${err}`, 'error');
   }
-  if (btn) btn.disabled = false;
-  loadJadxStatus();
+  if (typeof refreshJadxToolStatus === 'function') refreshJadxToolStatus();
 }
 
 async function loadJadxPackages(serial) {

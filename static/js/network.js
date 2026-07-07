@@ -10,32 +10,76 @@ function renderNetworkTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card-grid">
-      <div class="card"><h4>Network info</h4><div id="network-info-body">Loading…</div></div>
-      <div class="card">
-        <h4>Ping (from device)</h4>
-        <div style="display:flex; gap:8px;"><input type="text" id="network-ping-host" placeholder="host or IP"><button id="network-ping-btn">Ping</button></div>
-        <pre id="network-ping-output" class="shell-output" style="height:120px; margin-top:8px;"></pre>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Network</h2>
+        <p class="muted">Device network info, ping, and local/remote port forwarding.</p>
       </div>
-    </div>
-    <div class="card-grid">
-      <div class="card">
-        <h4>Port forwarding (local → device)</h4>
-        <div style="display:flex; gap:6px; margin-bottom:8px;"><input type="text" id="fwd-local" placeholder="tcp:8080" style="width:100px;"> → <input type="text" id="fwd-remote" placeholder="tcp:8080" style="width:100px;"><button id="fwd-add-btn">Add</button></div>
-        <div id="fwd-list"></div>
-      </div>
-      <div class="card">
-        <h4>Reverse forwarding (device → local)</h4>
-        <div style="display:flex; gap:6px; margin-bottom:8px;"><input type="text" id="rev-remote" placeholder="tcp:8080" style="width:100px;"> ← <input type="text" id="rev-local" placeholder="tcp:8080" style="width:100px;"><button id="rev-add-btn">Add</button></div>
-        <div id="rev-list"></div>
-      </div>
+      <div id="network-subnav"></div>
     </div>
   `;
+  createSubNav(document.getElementById('network-subnav'), 'adbpanel.subnav.network', [
+    { key: 'info', label: 'Network info', render: (body) => renderNetworkInfoView(body, serial) },
+    { key: 'ping', label: 'Ping', render: (body) => renderNetworkPingView(body, serial) },
+    { key: 'forward', label: 'Port forwarding', render: (body) => renderNetworkForwardView(body, serial) },
+    { key: 'reverse', label: 'Reverse forwarding', render: (body) => renderNetworkReverseView(body, serial) },
+  ]);
+}
+
+function renderNetworkInfoView(body, serial) {
+  body.innerHTML = `<section class="panel-section"><div id="network-info-body">Loading…</div></section>`;
   loadNetworkInfo(serial);
-  loadForwards(serial);
-  loadReverses(serial);
+}
+
+function renderNetworkPingView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <input type="text" id="network-ping-host" placeholder="host or IP" style="flex:1; min-width:160px;">
+        <button id="network-ping-btn">Ping</button>
+      </div>
+      <pre id="network-ping-output" class="shell-output" style="height:200px;"></pre>
+    </section>`;
   document.getElementById('network-ping-btn').addEventListener('click', () => runPing(serial));
+}
+
+function renderNetworkForwardView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div>
+          <h3>Port forwarding</h3>
+          <p class="section-desc">Local → device: reach a port on the device from this machine.</p>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="fwd-local" placeholder="tcp:8080" style="width:100px;"> →
+        <input type="text" id="fwd-remote" placeholder="tcp:8080" style="width:100px;">
+        <button id="fwd-add-btn">Add</button>
+      </div>
+      <div id="fwd-list"></div>
+    </section>`;
+  loadForwards(serial);
   document.getElementById('fwd-add-btn').addEventListener('click', () => addForward(serial));
+}
+
+function renderNetworkReverseView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div>
+          <h3>Reverse forwarding</h3>
+          <p class="section-desc">Device → local: reach a port on this machine from the device.</p>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="rev-remote" placeholder="tcp:8080" style="width:100px;"> ←
+        <input type="text" id="rev-local" placeholder="tcp:8080" style="width:100px;">
+        <button id="rev-add-btn">Add</button>
+      </div>
+      <div id="rev-list"></div>
+    </section>`;
+  loadReverses(serial);
   document.getElementById('rev-add-btn').addEventListener('click', () => addReverse(serial));
 }
 
@@ -113,19 +157,10 @@ async function addReverse(serial) {
   loadReverses(serial);
 }
 
-// --- Wireless tab ---------------------------------------------------------
+// --- Wireless sub-view (mounted inside the merged Devices tab) ------------
 
-function renderWirelessTab() {
-  const pane = document.getElementById('tab-wireless');
-  if (!pane) return;
-  const serial = getSelectedSerial();
-  const device = getSelectedDevice();
-  pane.innerHTML = `
-    <div class="panel-page">
-      <div class="panel-header">
-        <h2>Wireless debugging</h2>
-        <p class="muted">Switch a USB-connected device to adb-over-Wi-Fi, connect to devices by address, and manage saved endpoints.</p>
-      </div>
+function renderWirelessSubView(containerEl, serial, device) {
+  containerEl.innerHTML = `
       <div class="panel-grid wireless-grid">
         <section class="panel-section wireless-enable">
           <div class="section-head">
@@ -190,7 +225,6 @@ function renderWirelessTab() {
           <div id="wireless-known-list" style="margin-top:12px;"></div>
         </section>
       </div>
-    </div>
   `;
   wireWirelessControls(serial);
   loadKnownDevices();
@@ -268,12 +302,6 @@ async function loadKnownDevices() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  onTabChange((tab) => {
-    if (tab === 'network') renderNetworkTab();
-    if (tab === 'wireless') renderWirelessTab();
-  });
-  onDeviceChange(() => {
-    if (currentTab() === 'network') renderNetworkTab();
-    if (currentTab() === 'wireless') renderWirelessTab();
-  });
+  onTabChange((tab) => { if (tab === 'network') renderNetworkTab(); });
+  onDeviceChange(() => { if (currentTab() === 'network') renderNetworkTab(); });
 });

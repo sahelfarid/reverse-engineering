@@ -165,53 +165,62 @@ function initLogout() {
 }
 
 // --- Tool status/install ---------------------------------------------------
+// Each tool has 2 possible DOM targets: the topbar (data-tool-status-scope="topbar",
+// hidden once the tool reaches a "terminal green" state) and the Settings > Tooling
+// section (data-tool-status-scope="settings", always shown). Install buttons are
+// class-based, not id-based, since the same markup renders into both targets at once.
+function toolStatusEls(tool) { return document.querySelectorAll(`[data-tool-status="${tool}"]`); }
+function setToolStatusHTML(tool, html, { hideWhenGreen = false } = {}) {
+  toolStatusEls(tool).forEach((el) => {
+    el.innerHTML = html;
+    if (el.dataset.toolStatusScope === 'topbar') el.style.display = hideWhenGreen ? 'none' : '';
+  });
+}
+
 async function refreshAdbStatus() {
-  const card = document.getElementById('adb-status-card');
-  if (!card) return null;
+  if (!toolStatusEls('adb').length) return null;
   try {
     const res = await fetch('/api/adb/status');
     const status = await res.json();
     renderAdbStatus(status);
     return status;
   } catch (err) {
-    card.innerHTML = `<span class="badge red">Error</span> Could not reach server`;
+    setToolStatusHTML('adb', `<span class="badge red">Error</span> Could not reach server`);
     return null;
   }
 }
 
 async function refreshApktoolStatus() {
-  const card = document.getElementById('apktool-status-card');
-  if (!card) return null;
+  if (!toolStatusEls('apktool').length) return null;
   try {
     const res = await apiFetch('/api/apktool/status');
     const status = await res.json();
     renderApktoolStatus(status);
     return status;
   } catch (err) {
-    card.innerHTML = `<span class="badge red">APKTool error</span>`;
+    setToolStatusHTML('apktool', `<span class="badge red">APKTool error</span>`);
     return null;
   }
 }
 
 function renderApktoolStatus(status) {
-  const card = document.getElementById('apktool-status-card');
   const javaOk = status.java && status.java.installed;
   const apktoolOk = status.apktool && status.apktool.installed;
+  let html; let terminalGreen = false;
   if (!javaOk) {
-    card.innerHTML = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
-    return;
+    html = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
+  } else if (apktoolOk) {
+    html = `<span class="badge green">APKTool installed</span> v${escapeHtml(status.apktool.version || status.apktool.pinned_version || '')}`;
+    terminalGreen = true;
+  } else {
+    html = `<span class="badge red">APKTool missing</span> <button type="button" class="install-apktool-btn">Install APKTool</button>`;
   }
-  if (apktoolOk) {
-    card.innerHTML = `<span class="badge green">APKTool installed</span> v${escapeHtml(status.apktool.version || status.apktool.pinned_version || '')}`;
-    return;
-  }
-  card.innerHTML = `<span class="badge red">APKTool missing</span> <button id="install-apktool-btn">Install APKTool</button>`;
-  document.getElementById('install-apktool-btn').addEventListener('click', installApktool);
+  setToolStatusHTML('apktool', html, { hideWhenGreen: terminalGreen });
+  document.querySelectorAll('.install-apktool-btn').forEach((btn) => btn.addEventListener('click', installApktool));
 }
 
 async function installApktool() {
-  const card = document.getElementById('apktool-status-card');
-  card.innerHTML = `<span class="badge yellow">Installing...</span> downloading apktool.jar`;
+  setToolStatusHTML('apktool', `<span class="badge yellow">Installing...</span> downloading apktool.jar`);
   try {
     const res = await apiFetch('/api/apktool/install', { method: 'POST' });
     const data = await res.json();
@@ -229,85 +238,76 @@ async function installApktool() {
 }
 
 async function refreshJadxToolStatus() {
-  const card = document.getElementById('jadx-status-card');
-  if (!card) return null;
+  if (!toolStatusEls('jadx').length) return null;
   try {
     const res = await apiFetch('/api/jadx/status');
     const status = await res.json();
     renderJadxToolStatus(status);
     return status;
   } catch (err) {
-    card.innerHTML = `<span class="badge red">JADX error</span>`;
+    setToolStatusHTML('jadx', `<span class="badge red">JADX error</span>`);
     return null;
   }
 }
 
 function renderJadxToolStatus(status) {
-  const card = document.getElementById('jadx-status-card');
-  if (!card) return;
   const javaOk = status.java && status.java.installed;
   const jadxOk = status.jadx && status.jadx.installed;
+  let html; let terminalGreen = false;
   if (!javaOk) {
-    card.innerHTML = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
-    return;
+    html = `<span class="badge red">Java missing</span> <a href="https://adoptium.net/" target="_blank" rel="noopener">Install Java</a>`;
+  } else if (jadxOk) {
+    html = `<span class="badge green">JADX installed</span> v${escapeHtml(status.jadx.version || status.jadx.pinned_version || '')}`;
+    terminalGreen = true;
+  } else {
+    html = `<span class="badge red">JADX missing</span> <button type="button" class="install-jadx-btn">Install JADX</button>`;
   }
-  if (jadxOk) {
-    card.innerHTML = `<span class="badge green">JADX installed</span> v${escapeHtml(status.jadx.version || status.jadx.pinned_version || '')}`;
-    return;
-  }
-  card.innerHTML = `<span class="badge red">JADX missing</span> <button id="install-jadx-btn">Install JADX</button>`;
-  document.getElementById('install-jadx-btn').addEventListener('click', () => {
+  setToolStatusHTML('jadx', html, { hideWhenGreen: terminalGreen });
+  document.querySelectorAll('.install-jadx-btn').forEach((btn) => btn.addEventListener('click', () => {
     if (typeof installJadx === 'function') installJadx();
-  });
+  }));
 }
 
 async function refreshFridaToolStatus() {
-  const card = document.getElementById('frida-tool-status-card');
-  if (!card) return null;
+  if (!toolStatusEls('frida').length) return null;
   try {
     const res = await apiFetch('/api/frida/status');
     const status = await res.json();
     renderFridaToolStatus(status);
     return status;
   } catch (err) {
-    card.innerHTML = `<span class="badge red">Frida error</span>`;
+    setToolStatusHTML('frida', `<span class="badge red">Frida error</span>`);
     return null;
   }
 }
 
 function renderFridaToolStatus(status) {
-  const card = document.getElementById('frida-tool-status-card');
   const serial = typeof getSelectedSerial === 'function' ? getSelectedSerial() : '';
   const ds = serial && status.devices ? status.devices.find((d) => d.serial === serial) : null;
+  let html; let terminalGreen = false;
   if (!status.python_installed) {
-    card.innerHTML = `<span class="badge red">Frida missing</span> Install requirements.txt`;
-    return;
+    html = `<span class="badge red">Frida missing</span> Install requirements.txt`;
+  } else if (!ds) {
+    html = `<span class="badge green">Frida package</span> v${escapeHtml(status.python_version || '')}`;
+    terminalGreen = true;
+  } else if (ds.error) {
+    html = `<span class="badge red">Frida device error</span> ${escapeHtml(ds.error)}`;
+  } else if (!ds.root_available) {
+    html = `<span class="badge yellow">Frida needs root</span> v${escapeHtml(status.python_version || '')}`;
+  } else if (ds.server_pushed) {
+    html = `<span class="badge green">Frida server ready</span> ${ds.server_running ? 'running' : 'pushed'}`;
+    terminalGreen = true;
+  } else {
+    html = `<span class="badge yellow">Frida server missing</span> <button type="button" class="install-frida-server-btn">Install Frida</button>`;
   }
-  if (!ds) {
-    card.innerHTML = `<span class="badge green">Frida package</span> v${escapeHtml(status.python_version || '')}`;
-    return;
-  }
-  if (ds.error) {
-    card.innerHTML = `<span class="badge red">Frida device error</span> ${escapeHtml(ds.error)}`;
-    return;
-  }
-  if (!ds.root_available) {
-    card.innerHTML = `<span class="badge yellow">Frida needs root</span> v${escapeHtml(status.python_version || '')}`;
-    return;
-  }
-  if (ds.server_pushed) {
-    card.innerHTML = `<span class="badge green">Frida server ready</span> ${ds.server_running ? 'running' : 'pushed'}`;
-    return;
-  }
-  card.innerHTML = `<span class="badge yellow">Frida server missing</span> <button id="install-frida-server-btn">Install Frida</button>`;
-  document.getElementById('install-frida-server-btn').addEventListener('click', installFridaServer);
+  setToolStatusHTML('frida', html, { hideWhenGreen: terminalGreen });
+  document.querySelectorAll('.install-frida-server-btn').forEach((btn) => btn.addEventListener('click', installFridaServer));
 }
 
 async function installFridaServer() {
   const serial = typeof getSelectedSerial === 'function' ? getSelectedSerial() : '';
   if (!serial) { toast('Select a rooted device first', 'error'); return; }
-  const card = document.getElementById('frida-tool-status-card');
-  card.innerHTML = `<span class="badge yellow">Installing...</span> pushing frida-server`;
+  setToolStatusHTML('frida', `<span class="badge yellow">Installing...</span> pushing frida-server`);
   try {
     const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/server/push`, { method: 'POST' });
     const data = await res.json();
@@ -319,18 +319,19 @@ async function installFridaServer() {
 }
 
 function renderAdbStatus(status) {
-  const card = document.getElementById('adb-status-card');
+  let html; let terminalGreen = false;
   if (status.installed) {
-    card.innerHTML = `<span class="badge green">ADB installed</span> v${escapeHtml(status.version)} (${escapeHtml(status.source)})`;
+    html = `<span class="badge green">ADB installed</span> v${escapeHtml(status.version)} (${escapeHtml(status.source)})`;
+    terminalGreen = true;
   } else {
-    card.innerHTML = `<span class="badge red">ADB not installed</span> <button id="install-adb-btn">Install ADB</button>`;
-    document.getElementById('install-adb-btn').addEventListener('click', installAdb);
+    html = `<span class="badge red">ADB not installed</span> <button type="button" class="install-adb-btn">Install ADB</button>`;
   }
+  setToolStatusHTML('adb', html, { hideWhenGreen: terminalGreen });
+  document.querySelectorAll('.install-adb-btn').forEach((btn) => btn.addEventListener('click', installAdb));
 }
 
 async function installAdb() {
-  const card = document.getElementById('adb-status-card');
-  card.innerHTML = `<span class="badge yellow">Installing…</span> downloading platform-tools`;
+  setToolStatusHTML('adb', `<span class="badge yellow">Installing…</span> downloading platform-tools`);
   try {
     const res = await apiFetch('/api/adb/install', { method: 'POST' });
     const data = await res.json();
@@ -367,8 +368,7 @@ function initKeyboardShortcuts() {
       return;
     }
     if (e.key === 'Escape') {
-      const modal = document.getElementById('preview-modal');
-      if (modal) modal.style.display = 'none';
+      if (typeof closeModal === 'function') closeModal();
       return;
     }
     if (e.key === '?') {

@@ -29,7 +29,7 @@ async function refreshDevices() {
     if (res.status === 503) {
       sel.innerHTML = '<option value="">ADB not installed</option>';
       ADB_DEVICES = [];
-      renderDevicesTab();
+      if (typeof currentTab === 'function' && currentTab() === 'devices') renderDevicesTab();
       DEVICE_CHANGE_LISTENERS.forEach((fn) => fn(null, null));
       return;
     }
@@ -49,7 +49,12 @@ async function refreshDevices() {
         sel.value = (firstOnline || ADB_DEVICES[0]).serial;
       }
     }
-    renderDevicesTab();
+    // Only rebuild the full Devices pane (which now also holds the Wireless
+    // sub-view's text inputs) while that tab is actually active -- otherwise
+    // this 5s poll would wipe in-progress typing in the Wireless "known
+    // device" fields every cycle, same as every other tab already gates its
+    // device-change re-render on currentTab().
+    if (typeof currentTab === 'function' && currentTab() === 'devices') renderDevicesTab();
     DEVICE_CHANGE_LISTENERS.forEach((fn) => fn(getSelectedSerial(), getSelectedDevice()));
   } catch (err) {
     toast(`Failed to list devices: ${err}`, 'error');
@@ -59,8 +64,26 @@ async function refreshDevices() {
 function renderDevicesTab() {
   const pane = document.getElementById('tab-devices');
   if (!pane) return;
+  const serial = getSelectedSerial();
+  const device = getSelectedDevice();
+  pane.innerHTML = `
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Devices</h2>
+        <p class="muted">Connected devices and wireless debugging targets.</p>
+      </div>
+      <div id="devices-subnav"></div>
+    </div>
+  `;
+  createSubNav(document.getElementById('devices-subnav'), 'adbpanel.subnav.devices', [
+    { key: 'connected', label: 'Connected devices', render: (body) => renderConnectedDevicesView(body) },
+    { key: 'wireless', label: 'Wireless', render: (body) => renderWirelessSubView(body, serial, device) },
+  ]);
+}
+
+function renderConnectedDevicesView(body) {
   if (!ADB_DEVICES.length) {
-    pane.innerHTML = `<div class="alert info">No devices detected — enable USB debugging on the device and reconnect the cable (or accept the RSA prompt if one appeared).</div>`;
+    body.innerHTML = `<div class="alert info">No devices detected — enable USB debugging on the device and reconnect the cable (or accept the RSA prompt if one appeared).</div>`;
     return;
   }
   const rows = ADB_DEVICES.map((d) => `
@@ -72,24 +95,22 @@ function renderDevicesTab() {
       <td>${escapeHtml(d.transport_id || '—')}</td>
       <td>${d.is_wireless ? 'Wi-Fi' : 'USB'}</td>
     </tr>`).join('');
-  pane.innerHTML = `
-    <div class="panel-page">
-      <section class="panel-section">
-        <div class="section-head">
-          <div>
-            <h3>Connected devices</h3>
-            <p class="section-desc">USB and Wi-Fi debugging targets currently visible to adb.</p>
-          </div>
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div>
+          <h3>Connected devices</h3>
+          <p class="section-desc">USB and Wi-Fi debugging targets currently visible to adb.</p>
         </div>
-        <div class="table-wrap auto-height">
-          <table>
-            <thead><tr><th>Serial</th><th>State</th><th>Model</th><th>Product</th><th>Transport</th><th>Link</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </section>
-      <section id="device-detail-card" class="panel-section">Loading device details…</section>
-    </div>
+      </div>
+      <div class="table-wrap auto-height">
+        <table>
+          <thead><tr><th>Serial</th><th>State</th><th>Model</th><th>Product</th><th>Transport</th><th>Link</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>
+    <section id="device-detail-card" class="panel-section">Loading device details…</section>
   `;
   loadDeviceDetail();
 }

@@ -12,19 +12,27 @@ function renderPackagesTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-        <input type="text" id="packages-filter" placeholder="Filter by package name…" style="flex:1; min-width:200px;">
-        <label><input type="checkbox" id="packages-system-toggle"> Show system apps</label>
-        <button id="packages-refresh-btn">Refresh</button>
-        <label class="ghost-btn" style="display:inline-block;">Install APK(s)<input type="file" id="packages-install-input" accept=".apk" multiple style="display:none;"></label>
-        <label class="ghost-btn" style="display:inline-block;">Install as background job<input type="file" id="packages-install-async-input" accept=".apk" multiple style="display:none;"></label>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Packages</h2>
+        <p class="muted">List, filter, and manage installed apps; install single or split APKs.</p>
       </div>
-      <div id="packages-alert"></div>
-      <table>
-        <thead><tr><th>Package</th><th>Version</th><th>Type</th><th>Actions</th></tr></thead>
-        <tbody id="packages-table-body"><tr><td colspan="4">Loading…</td></tr></tbody>
-      </table>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <input type="text" id="packages-filter" placeholder="Filter by package name…" style="flex:1; min-width:200px;">
+          <label><input type="checkbox" id="packages-system-toggle"> Show system apps</label>
+          <button id="packages-refresh-btn">Refresh</button>
+          <label class="ghost-btn upload-label">Install APK(s)<input type="file" id="packages-install-input" accept=".apk" multiple style="display:none;"></label>
+          <label class="ghost-btn upload-label">Install as background job<input type="file" id="packages-install-async-input" accept=".apk" multiple style="display:none;"></label>
+        </div>
+        <div id="packages-alert"></div>
+        <div class="table-wrap auto-height">
+          <table>
+            <thead><tr><th>Package</th><th>Version</th><th>Type</th><th>Actions</th></tr></thead>
+            <tbody id="packages-table-body"><tr><td colspan="4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   `;
   wirePackagesToolbar(serial);
@@ -97,29 +105,34 @@ function renderPackagesTable(serial) {
         <button data-act="enable">Enable</button>
         <button data-act="clear-data">Clear</button>
         <button data-act="pull">Pull APK</button>
+        <label class="muted" style="font-size:0.82em;"><input type="checkbox" class="keep-data-cb"> Keep data</label>
         <button data-act="uninstall">Uninstall</button>
       </td>
     </tr>`).join('');
   body.querySelectorAll('tr[data-pkg]').forEach((row) => {
     const pkg = row.dataset.pkg;
     row.querySelectorAll('button[data-act]').forEach((btn) => {
-      btn.addEventListener('click', () => handlePackageAction(serial, pkg, btn.dataset.act));
+      btn.addEventListener('click', () => {
+        const keepDataCb = row.querySelector('.keep-data-cb');
+        handlePackageAction(serial, pkg, btn.dataset.act, keepDataCb ? keepDataCb.checked : false);
+      });
     });
   });
 }
 
-async function handlePackageAction(serial, pkg, action) {
+async function handlePackageAction(serial, pkg, action, keepData) {
   if (action === 'pull') {
     window.location.href = `/api/devices/${encodeURIComponent(serial)}/packages/${encodeURIComponent(pkg)}/pull`;
     return;
   }
-  if (action === 'uninstall' && !confirm(`Uninstall ${pkg}?`)) return;
+  if (action === 'uninstall' && !confirm(`Uninstall ${pkg}${keepData ? ' (keeping app data)' : ''}?`)) return;
   const endpointMap = {
     launch: 'launch', 'force-stop': 'force-stop', disable: 'disable', enable: 'enable',
     'clear-data': 'clear-data', uninstall: 'uninstall',
   };
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/packages/${encodeURIComponent(pkg)}/${endpointMap[action]}`, { method: 'POST' });
+    const body = action === 'uninstall' ? { keep_data: !!keepData } : undefined;
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/packages/${encodeURIComponent(pkg)}/${endpointMap[action]}`, { method: 'POST', body });
     const data = await res.json();
     if (data.ok) {
       toast(`${action} succeeded`, 'success');

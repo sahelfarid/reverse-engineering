@@ -1,5 +1,12 @@
 // Battery/HW tab, Permissions tab, Clipboard tab (all backed by routes/battery.py).
 
+Object.assign(TIP_REGISTRY, {
+  'clipboard.restrictions': {
+    title: 'Clipboard restrictions',
+    body: '<p>Android restricts programmatic clipboard access -- especially since Android 10, reads are limited to the focused app.</p><p>Read may fail depending on OS version/OEM; write requires a helper app such as "Clipper" to be installed on the device.</p>',
+  },
+});
+
 function renderBatteryTab() {
   const pane = document.getElementById('tab-battery');
   if (!pane) return;
@@ -10,15 +17,43 @@ function renderBatteryTab() {
     return;
   }
   pane.innerHTML = `
-    <div id="hardware-body">Loading…</div>
-    <button id="hardware-refresh-btn">Refresh</button>
-    <h3 style="margin-top:24px;">Device integrity / root detection</h3>
-    <div id="integrity-body">Loading…</div>
-    <button id="integrity-refresh-btn">Re-check integrity</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Battery / HW</h2>
+        <p class="muted">Hardware telemetry and root/tamper detection.</p>
+      </div>
+      <div id="battery-subnav"></div>
+    </div>
   `;
+  createSubNav(document.getElementById('battery-subnav'), 'adbpanel.subnav.battery', [
+    { key: 'hardware', label: 'Hardware', render: (body) => renderHardwareView(body, serial) },
+    { key: 'integrity', label: 'Integrity', render: (body) => renderIntegrityView(body, serial) },
+  ]);
+}
+
+function renderHardwareView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div><h3>Hardware</h3></div>
+        <button id="hardware-refresh-btn" class="ghost-btn small">Refresh</button>
+      </div>
+      <div id="hardware-body">Loading…</div>
+    </section>`;
   document.getElementById('hardware-refresh-btn').addEventListener('click', () => loadHardware(serial));
-  document.getElementById('integrity-refresh-btn').addEventListener('click', () => loadIntegrity(serial));
   loadHardware(serial);
+}
+
+function renderIntegrityView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div><h3>Device integrity / root detection</h3></div>
+        <button id="integrity-refresh-btn" class="ghost-btn small">Re-check</button>
+      </div>
+      <div id="integrity-body">Loading…</div>
+    </section>`;
+  document.getElementById('integrity-refresh-btn').addEventListener('click', () => loadIntegrity(serial));
   loadIntegrity(serial);
 }
 
@@ -40,8 +75,8 @@ async function loadIntegrity(serial) {
     const checkRow = (label, present, evidence) =>
       `<tr><td>${escapeHtml(label)}</td><td>${present ? '<span class="badge red">✓ detected</span>' : '<span class="badge green">✗ clear</span>'}</td><td class="muted">${escapeHtml(evidence || '—')}</td></tr>`;
     body.innerHTML = `
-      <div class="card">
-        <div style="font-size:1.1em; margin-bottom:8px;">Verdict: <span class="badge ${badgeClass}">${escapeHtml(r.verdict)}</span></div>
+      <div style="font-size:1.1em; margin-bottom:8px;">Verdict: <span class="badge ${badgeClass}">${escapeHtml(r.verdict)}</span></div>
+      <div class="table-wrap auto-height">
         <table>
           <thead><tr><th>Indicator</th><th>State</th><th>Evidence</th></tr></thead>
           <tbody>
@@ -57,8 +92,8 @@ async function loadIntegrity(serial) {
             ${checkRow('Bootloader unlocked', b.bootloader_locked === '0', 'ro.boot.flash.locked=' + escapeHtml(b.bootloader_locked || '?'))}
           </tbody>
         </table>
-        <div class="alert info" style="margin-top:10px;">${escapeHtml(r.disclaimer)}</div>
       </div>
+      <div class="alert info" style="margin-top:10px;">${escapeHtml(r.disclaimer)}</div>
     `;
   } catch (err) {
     body.innerHTML = `<div class="alert error">${escapeHtml(String(err))}</div>`;
@@ -111,12 +146,18 @@ function renderPermissionsTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <select id="permissions-package-select" style="flex:1;"><option>Loading packages…</option></select>
-        <button id="permissions-load-btn">Load</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Permissions</h2>
+        <p class="muted">Inspect and grant/revoke a package's runtime permissions.</p>
       </div>
-      <div id="permissions-body"></div>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <select id="permissions-package-select" style="flex:1;"><option>Loading packages…</option></select>
+          <button id="permissions-load-btn">Load</button>
+        </div>
+        <div id="permissions-body"></div>
+      </section>
     </div>
   `;
   loadPermissionsPackageList(serial);
@@ -181,26 +222,46 @@ function renderClipboardTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="alert warn">Android restricts programmatic clipboard access (especially since Android 10, reads are limited to the focused app). Read may fail depending on OS version/OEM; write requires a helper app such as "Clipper" to be installed on the device.</div>
-    <div class="card-grid">
-      <div class="card">
-        <h4>Read clipboard</h4>
-        <button id="clipboard-read-btn">Read</button>
-        <pre id="clipboard-read-output" class="shell-output" style="height:100px; margin-top:8px;"></pre>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Clipboard</h2>
+        <p class="muted">
+          Read/write the device clipboard.
+          <button type="button" class="tip-btn" data-tip-key="clipboard.restrictions" aria-label="Help">?</button>
+        </p>
       </div>
-      <div class="card">
-        <h4>Write clipboard</h4>
-        <textarea id="clipboard-write-input" rows="3" style="width:100%;"></textarea>
-        <button id="clipboard-write-btn">Write</button>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h4>History (this session)</h4>
-        <div id="clipboard-history"></div>
-      </div>
+      <div id="clipboard-subnav"></div>
     </div>
   `;
+  createSubNav(document.getElementById('clipboard-subnav'), 'adbpanel.subnav.clipboard', [
+    { key: 'read', label: 'Read', render: (body) => renderClipboardReadView(body, serial) },
+    { key: 'write', label: 'Write', render: (body) => renderClipboardWriteView(body, serial) },
+    { key: 'history', label: 'History', render: (body) => renderClipboardHistoryView(body, serial) },
+  ]);
+}
+
+function renderClipboardReadView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <button id="clipboard-read-btn">Read</button>
+      <pre id="clipboard-read-output" class="shell-output" style="height:160px; margin-top:8px;"></pre>
+    </section>`;
   document.getElementById('clipboard-read-btn').addEventListener('click', () => readClipboard(serial));
+}
+
+function renderClipboardWriteView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <textarea id="clipboard-write-input" rows="4" style="width:100%;"></textarea>
+      <div class="section-actions justify-start">
+        <button id="clipboard-write-btn" class="primary-btn">Write</button>
+      </div>
+    </section>`;
   document.getElementById('clipboard-write-btn').addEventListener('click', () => writeClipboard(serial));
+}
+
+function renderClipboardHistoryView(body, serial) {
+  body.innerHTML = `<section class="panel-section"><div id="clipboard-history"></div></section>`;
   loadClipboardHistory(serial);
 }
 

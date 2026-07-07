@@ -9,6 +9,13 @@ const SHELL_COMMON_COMMANDS = [
   'rm', 'mv', 'cp', 'mkdir', 'chmod', 'su', 'exit', 'clear', 'wm size', 'wm density',
 ];
 
+Object.assign(TIP_REGISTRY, {
+  'shell.usage': {
+    title: 'Shell usage',
+    body: '<p>Enter runs the command; Shift+Enter inserts a new line.</p><p>↑/↓ recall this device\'s command history (kept locally, last 200).</p><p>"Use su" re-runs the command through <code>su -c</code> when a root shell is available.</p>',
+  },
+});
+
 let shellTranscript = [];
 
 function shellHistoryKey(serial) { return `adbpanel.shellHistory.${serial}`; }
@@ -36,19 +43,25 @@ function renderShellTab() {
   shellTranscript = [];
 
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
-        <label><input type="checkbox" id="shell-su-toggle" disabled> Use su</label>
-        <button id="shell-clear-btn">Clear</button>
-        <button id="shell-export-btn">Export history</button>
-        <span class="muted">Enter runs the command · Shift+Enter for a new line · ↑/↓ recall history</span>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Shell</h2>
+        <p class="muted">Run one-shot <code>adb shell</code> commands against the selected device.</p>
       </div>
-      <pre id="shell-output" class="shell-output"></pre>
-      <div style="display:flex; gap:8px; margin-top:8px; position:relative;">
-        <textarea id="shell-input" rows="1" style="flex:1; font-family:Consolas,monospace;" placeholder="e.g. ls -la /sdcard"></textarea>
-        <button id="shell-run-btn">Run</button>
-        <div id="shell-autocomplete" class="card" style="position:absolute; bottom:100%; left:0; right:80px; display:none; max-height:160px; overflow-y:auto; z-index:5;"></div>
-      </div>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <label><input type="checkbox" id="shell-su-toggle" disabled> Use su</label>
+          <button id="shell-clear-btn">Clear</button>
+          <button id="shell-export-btn">Export history</button>
+          <button type="button" class="tip-btn" data-tip-key="shell.usage" aria-label="Help">?</button>
+        </div>
+        <pre id="shell-output" class="shell-output"></pre>
+        <div style="display:flex; gap:8px; margin-top:8px; position:relative;">
+          <textarea id="shell-input" rows="1" style="flex:1; font-family:Consolas,monospace;" placeholder="e.g. ls -la /sdcard"></textarea>
+          <button id="shell-run-btn">Run</button>
+          <div id="shell-autocomplete" class="card" style="position:absolute; bottom:100%; left:0; right:80px; display:none; max-height:160px; overflow-y:auto; z-index:5;"></div>
+        </div>
+      </section>
     </div>
   `;
 

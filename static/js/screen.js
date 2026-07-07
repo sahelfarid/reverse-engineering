@@ -12,58 +12,52 @@ function renderScreenTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card-grid">
-      <div class="card" style="grid-column: span 2;">
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <button id="screen-refresh-btn">Screenshot</button>
-          <label><input type="checkbox" id="screen-continuous-toggle"> Continuous (2s)</label>
-          <a id="screen-download-link" download="screenshot.png"><button type="button">Download PNG</button></a>
-        </div>
-        <img id="screen-preview" style="max-width:100%; max-height:60vh; border:1px solid var(--border); border-radius:8px;">
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Screen</h2>
+        <p class="muted">Screenshot, screen recording, rotation, power, and brightness.</p>
       </div>
-      <div class="card">
-        <h4>Recording</h4>
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <input type="number" id="screen-record-limit" value="60" min="1" max="180" style="width:70px;"> sec
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="screen-record-start-btn">Start</button>
-          <button id="screen-record-stop-btn">Stop</button>
-          <button id="screen-record-pull-btn">Pull recording</button>
-        </div>
-        <div id="screen-record-status" class="muted" style="margin-top:8px;"></div>
-      </div>
-      <div class="card">
-        <h4>Rotation</h4>
-        <div style="display:flex; gap:6px; flex-wrap:wrap;">
-          <button data-deg="0">0°</button><button data-deg="90">90°</button>
-          <button data-deg="180">180°</button><button data-deg="270">270°</button>
-          <button id="screen-auto-rotate-btn">Auto</button>
-        </div>
-      </div>
-      <div class="card">
-        <h4>Power</h4>
-        <div style="display:flex; gap:8px;">
-          <button id="screen-wake-btn">Wake</button>
-          <button id="screen-sleep-btn">Sleep</button>
-        </div>
-      </div>
-      <div class="card">
-        <h4>Brightness</h4>
-        <input type="range" id="screen-brightness" min="0" max="255" value="128" style="width:100%;">
-      </div>
+      <div id="screen-subnav"></div>
     </div>
   `;
-  wireScreenControls(serial);
-  refreshScreenshot(serial);
+  createSubNav(document.getElementById('screen-subnav'), 'adbpanel.subnav.screen', [
+    { key: 'screenshot', label: 'Screenshot', render: (body) => renderScreenshotView(body, serial) },
+    { key: 'recording', label: 'Recording', render: (body) => renderRecordingView(body, serial) },
+    { key: 'controls', label: 'Device controls', render: (body) => renderScreenControlsView(body, serial) },
+  ]);
 }
 
-function wireScreenControls(serial) {
+function renderScreenshotView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <button id="screen-refresh-btn">Screenshot</button>
+        <label><input type="checkbox" id="screen-continuous-toggle"> Continuous (2s)</label>
+        <a id="screen-download-link" download="screenshot.png"><button type="button">Download PNG</button></a>
+      </div>
+      <img id="screen-preview" style="max-width:100%; max-height:60vh; border:1px solid var(--border); border-radius:8px;">
+    </section>`;
   document.getElementById('screen-refresh-btn').addEventListener('click', () => refreshScreenshot(serial));
   document.getElementById('screen-continuous-toggle').addEventListener('change', (e) => {
     if (screenPollTimer) { clearInterval(screenPollTimer); screenPollTimer = null; }
     if (e.target.checked) screenPollTimer = setInterval(() => refreshScreenshot(serial), 2000);
   });
+  refreshScreenshot(serial);
+}
+
+function renderRecordingView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <input type="number" id="screen-record-limit" value="60" min="1" max="180" style="width:70px;"> sec
+      </div>
+      <div class="toolbar-row">
+        <button id="screen-record-start-btn">Start</button>
+        <button id="screen-record-stop-btn">Stop</button>
+        <button id="screen-record-pull-btn">Pull recording</button>
+      </div>
+      <div id="screen-record-status" class="muted"></div>
+    </section>`;
   document.getElementById('screen-record-start-btn').addEventListener('click', async () => {
     const limit = parseInt(document.getElementById('screen-record-limit').value, 10) || 60;
     const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/screen/record/start`, { method: 'POST', body: { time_limit_sec: limit } });
@@ -78,6 +72,29 @@ function wireScreenControls(serial) {
   document.getElementById('screen-record-pull-btn').addEventListener('click', () => {
     window.location.href = `/api/devices/${encodeURIComponent(serial)}/screen/record/pull`;
   });
+}
+
+function renderScreenControlsView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Rotation</h3></div></div>
+      <div class="toolbar-row">
+        <button data-deg="0">0°</button><button data-deg="90">90°</button>
+        <button data-deg="180">180°</button><button data-deg="270">270°</button>
+        <button id="screen-auto-rotate-btn">Auto</button>
+      </div>
+    </section>
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Power</h3></div></div>
+      <div class="toolbar-row">
+        <button id="screen-wake-btn">Wake</button>
+        <button id="screen-sleep-btn">Sleep</button>
+      </div>
+    </section>
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Brightness</h3></div></div>
+      <input type="range" id="screen-brightness" min="0" max="255" value="128" style="width:100%;">
+    </section>`;
   document.querySelectorAll('[data-deg]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/screen/rotate`, { method: 'POST', body: { degrees: parseInt(btn.dataset.deg, 10) } });
