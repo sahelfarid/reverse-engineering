@@ -77,8 +77,9 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 | Jobs | 90% | routes/jobs 100% |
 | Root detection | 98% | routes/root_detection 100% |
 | Frida | 87% | routes/frida 97% |
+| JADX | 88% | routes/jadx 91% |
 
-**Total: 538 Python tests passed, 6 skipped (real-device smoke tests, no device attached), 97% Python coverage** -- up from 527/96% at the previous checkpoint, 525/97% before that, 512/96% before that, 71/51% at the original audit.
+**Total: 622 Python tests passed, 6 skipped (real-device smoke tests, no device attached), 95% Python coverage** -- reflects the new JADX module added after the original audit sweep (538/97% at that point); see `docs/module-audits/jadx.md` for its own first-pass notes.
 
 **Frontend: 4 Vitest tests passing** (`npm install && npm test`), covering `static/js/shell.js`'s terminal rendering. Frontend coverage is not merged into the Python coverage number above. All other frontend JavaScript and template behavior remains unmeasured.
 
@@ -106,6 +107,7 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 - [Jobs](../modules/jobs.md)
 - [Root Detection](../modules/root-detection.md)
 - [Frida](../modules/frida.md)
+- [JADX](../modules/jadx.md)
 
 ## Audit Files (open items only)
 
@@ -129,8 +131,15 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 - [Jobs](jobs.md)
 - [Root Detection](root-detection.md)
 - [Frida](frida.md)
+- [JADX](jadx.md)
 
-As of 2026-07-07, all 19 audit files report zero open items. `app-inspector.md` and `devices-dashboard.md`'s real-device smoke-test recommendations are now closed by `tests/test_app_inspector_smoke.py` / `tests/test_devices_dashboard_smoke.py` (skip cleanly with no device attached); `shell.md`'s frontend-testing recommendation is closed by `tests/frontend/shell.test.js`; `jobs.md`'s pruning-policy recommendation is closed by an actual pruning implementation in `adb/jobs.py`.
+As of 2026-07-07, all 19 audit files from the original sweep report zero open items (see the per-file
+notes above). `app-inspector.md` and `devices-dashboard.md`'s real-device smoke-test recommendations
+are now closed by `tests/test_app_inspector_smoke.py` / `tests/test_devices_dashboard_smoke.py` (skip
+cleanly with no device attached); `shell.md`'s frontend-testing recommendation is closed by
+`tests/frontend/shell.test.js`; `jobs.md`'s pruning-policy recommendation is closed by an actual
+pruning implementation in `adb/jobs.py`. `jadx.md` (added later, alongside the new JADX module) is
+also at zero open items; see its own file for the two bugs the implementation pass found and fixed.
 
 ## Cross-Cutting Findings
 

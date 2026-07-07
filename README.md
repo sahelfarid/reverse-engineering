@@ -1,6 +1,6 @@
 # ADB Device Manager
 
-A local Flask panel for browsing, testing, and managing Android devices over ADB. It includes device discovery, file transfer, shell access, APKTool decompile/rebuild workflows, package/app inspection, logcat streaming, screen tools, input automation, backups, network tools, permissions, clipboard helpers, process management, Frida instrumentation, and a portable desktop wrapper.
+A local Flask panel for browsing, testing, and managing Android devices over ADB. It includes device discovery, file transfer, shell access, APKTool decompile/rebuild workflows, JADX decompilation and static analysis, package/app inspection, logcat streaming, screen tools, input automation, backups, network tools, permissions, clipboard helpers, process management, Frida instrumentation, and a portable desktop wrapper.
 
 **This is a local developer tool, not a hosted service.** It binds to `127.0.0.1` only and must never be exposed on a public network. It can run privileged shell actions and modify connected devices, so login, CSRF protection, and audit logging stay enabled even in the desktop build.
 
@@ -83,6 +83,7 @@ Desktop dependencies live in `requirements-desktop.txt`; web-only usage only nee
 - File browser with upload/download, folder export, preview, search, rename, move, copy, mkdir, and delete.
 - Shell terminal with safe ADB invocation and optional rooted `su` usage.
 - APKTool tab for authorized APK pull, decompile, local edit, rebuild, debug-sign, and reinstall workflows.
+- JADX tab for authorized APK/DEX/JAR decompilation (device pull or local upload) to readable Java, with search, manifest summary, static findings, and report export.
 - Package management: install, uninstall, enable/disable, clear data, force-stop, launch, restart, APK pull, and size inspection.
 - App inspector for permissions, components, data directory access, databases, and backup paths.
 - Live logcat over SSE with tag, pid, package, level, and regex filters.
@@ -127,6 +128,20 @@ The APKTool tab can:
 
 Java is required and is not silently installed; use a JRE/JDK such as Adoptium. Android SDK build-tools are recommended for `apksigner` and `zipalign`; a JDK `jarsigner` fallback is supported.
 
+## JADX Static Analysis
+
+JADX support is for apps you own, your own test devices, or work where you have explicit authorization. Unlike APKTool, this is a one-directional decompiler with no rebuild/sign/reinstall and no write-back to the device -- read-only start to finish.
+
+The JADX tab can:
+
+- Check Java and jadx availability (resolved from a settings override, then `PATH`, then the app-managed install) and download the pinned jadx release into `vendor/jadx/`.
+- Pull an installed package's APK through the existing package helper, or accept a direct local `.apk`/`.dex`/`.jar` upload, and decompile it under `workspace/jadx_projects/<project>/`.
+- Browse the decompiled tree read-only and full-text search across it (literal or regex).
+- Parse the decompiled `AndroidManifest.xml` into a permissions/components/SDK summary.
+- Run an opt-in static-findings pass (risky manifest flags/permissions, hardcoded secrets, weak crypto, risky WebView/TLS patterns) and export a JSON or Markdown analysis report.
+
+Decompile jobs are cancellable and timeout-bounded through the same background-job system used elsewhere in the app.
+
 ## API Surface
 
 All routes are `/api/...` and return JSON except file/image/zip downloads and SSE streams. Grouped by area:
@@ -137,6 +152,7 @@ All routes are `/api/...` and return JSON except file/image/zip downloads and SS
 - **Files**: browse, search, mkdir, delete, rename, move, copy, upload, download, folder download, preview.
 - **Packages**: list, install, uninstall, disable/enable, clear-data, force-stop, launch, restart, pull APK, size.
 - **APKTool**: tool status/install, decompile jobs, project list/browser, file read/save, rebuild jobs, reinstall, delete project.
+- **JADX**: tool status/install, decompile jobs (device pull or local upload), project list/browser, read-only file read, search, manifest summary, static findings, report export, delete project.
 - **App Inspector**: permissions/components/data-dir detail.
 - **Logcat**: SSE stream and clear.
 - **Screen**: screenshot, record start/stop/status/pull, rotate, wake/sleep, brightness.
@@ -192,6 +208,7 @@ To add a new tab: add an `adb/<area>.py` module with pure Python logic, add a `r
 
 - **ADB not installed**: use the Dashboard install button, or check network access to `dl.google.com`.
 - **APKTool missing**: use the Dashboard or APKTool tab install button; Java must already be installed.
+- **JADX missing**: use the Dashboard or JADX tab install button; Java must already be installed. If a system `jadx` on `PATH` reports a broken version (e.g. a stale `JAVA_HOME`), set an explicit path in Settings > `jadx path override`.
 - **APK rebuild cannot sign**: install Android SDK build-tools for apksigner, or a JDK that includes jarsigner/keytool.
 - **Device unauthorized**: accept the RSA key prompt on the device and refresh.
 - **Device offline**: reconnect USB or restart the ADB server externally.
@@ -210,3 +227,4 @@ To add a new tab: add an `adb/<area>.py` module with pure Python logic, add a `r
 - Job cancellation only interrupts steps backed by live subprocess handles.
 - Root shell actions require rooted devices or emulators.
 - Frida Gadget/non-root APK repackaging, codesigning/notarization, tray mode, and auto-update are out of scope for v1.
+- JADX static findings are pattern-based (not a real data-flow/taint analysis) and are meant as evidence for a human analyst, not confirmed vulnerabilities.

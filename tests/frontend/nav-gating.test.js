@@ -37,7 +37,7 @@ describe('updateNavDeviceGating', () => {
     const { window, document } = setUp();
     window.updateNavDeviceGating(null, null);
     window.updateNavDeviceGating('s1', { serial: 's1', state: 'device' });
-    expect(document.querySelector('li[data-tab="files"]').style.display).toBe('');
+    expect(document.querySelector('li[data-tab="files"]').style.display).toBe('list-item');
   });
 
   it('keeps requires-device tabs hidden for an unauthorized/offline device', () => {
