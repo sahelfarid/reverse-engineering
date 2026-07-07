@@ -12,12 +12,18 @@ function renderPropertiesTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <input type="text" id="properties-search" placeholder="Search key or value…" style="flex:1;">
-        <button id="properties-refresh-btn">Refresh</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Properties</h2>
+        <p class="muted">Categorized <code>getprop</code> viewer, searchable by key or value.</p>
       </div>
-      <div id="properties-body">Loading…</div>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <input type="text" id="properties-search" placeholder="Search key or value…" style="flex:1;">
+          <button id="properties-refresh-btn">Refresh</button>
+        </div>
+        <div id="properties-body">Loading…</div>
+      </section>
     </div>
   `;
   document.getElementById('properties-refresh-btn').addEventListener('click', () => loadProperties(serial));

@@ -1,7 +1,15 @@
 // Frida tab: provision frida-server, attach/spawn targets, and stream script output.
 
+Object.assign(TIP_REGISTRY, {
+  'frida.warning': {
+    title: 'Authorized testing only',
+    body: '<p>Run Frida only against your own devices and apps, or those you have explicit permission to test.</p>',
+  },
+});
+
 let FRIDA_STATUS = null;
 let FRIDA_PROCESSES = [];
+let FRIDA_SELECTED_PID = null;
 let fridaSource = null;
 let fridaSessionId = null;
 
@@ -18,55 +26,97 @@ function renderFridaTab() {
     pane.innerHTML = `<div class="alert warn">Select an authorized, online device for Frida instrumentation.</div>`;
     return;
   }
+  FRIDA_SELECTED_PID = null;
   pane.innerHTML = `
-    <div class="alert warn">Authorized testing only. Run Frida against your own devices and apps where you have explicit permission.</div>
-    <div class="card-grid">
-      <div class="card" style="grid-column: span 2;">
-        <h3>Frida status</h3>
-        <div id="frida-status-card" class="muted">Checking Frida status...</div>
-        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-          <button id="frida-refresh-btn">Refresh</button>
-          <button id="frida-push-btn">Push server</button>
-          <button id="frida-start-btn">Start server</button>
-          <button id="frida-stop-btn">Stop server</button>
-        </div>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>Frida</h2>
+        <p class="muted">
+          Provision frida-server, attach or spawn a target, and run a script against it.
+          <button type="button" class="tip-btn" data-tip-key="frida.warning" aria-label="Help">?</button>
+        </p>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Target</h3>
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <input type="text" id="frida-process-filter" placeholder="Filter process..." style="flex:1; min-width:160px;">
-          <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" style="flex:1; min-width:220px;">
-          <button id="frida-process-refresh-btn">Refresh processes</button>
+      <section class="panel-section subnav-pinned">
+        <div class="section-head">
+          <div><h3>Live console</h3></div>
+          <button id="frida-detach-btn" disabled>Detach</button>
         </div>
+        <pre id="frida-console" class="shell-output"></pre>
+      </section>
+      <div id="frida-subnav"></div>
+    </div>
+  `;
+  document.getElementById('frida-detach-btn').addEventListener('click', detachFrida);
+  createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
+    { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
+    { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
+    { key: 'script', label: 'Script', render: (body) => renderFridaScriptView(body, serial) },
+  ]);
+}
+
+function renderFridaStatusView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div id="frida-status-card" class="muted">Checking Frida status...</div>
+      <div class="toolbar-row" style="margin-top:10px;">
+        <button id="frida-refresh-btn">Refresh</button>
+        <button id="frida-push-btn">Push server</button>
+        <button id="frida-start-btn">Start server</button>
+        <button id="frida-stop-btn">Stop server</button>
+      </div>
+    </section>`;
+  document.getElementById('frida-refresh-btn').addEventListener('click', () => refreshFridaStatus(serial));
+  document.getElementById('frida-push-btn').addEventListener('click', () => fridaServerAction(serial, 'push'));
+  document.getElementById('frida-start-btn').addEventListener('click', () => fridaServerAction(serial, 'start'));
+  document.getElementById('frida-stop-btn').addEventListener('click', () => fridaServerAction(serial, 'stop'));
+  refreshFridaStatus(serial);
+}
+
+function renderFridaTargetView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <input type="text" id="frida-process-filter" placeholder="Filter process..." style="flex:1; min-width:160px;">
+        <button id="frida-process-refresh-btn">Refresh processes</button>
+      </div>
+      <div class="table-wrap auto-height">
         <table>
           <thead><tr><th>PID</th><th>Name</th><th>Action</th></tr></thead>
           <tbody id="frida-process-body"><tr><td colspan="3">Loading...</td></tr></tbody>
         </table>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Script</h3>
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <select id="frida-script-select"></select>
-          <input type="text" id="frida-script-name" placeholder="Script name" style="width:180px;">
-          <button id="frida-load-script-btn">Load</button>
-          <button id="frida-save-script-btn">Save</button>
-          <button id="frida-delete-script-btn">Delete</button>
-          <button id="frida-attach-selected-btn">Attach selected</button>
-          <button id="frida-spawn-btn">Spawn + attach</button>
-          <button id="frida-detach-btn" disabled>Detach</button>
-        </div>
-        <textarea id="frida-script-editor" spellcheck="false" style="width:100%; min-height:280px; font-family:Consolas, monospace;"></textarea>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Live console</h3>
-        <pre id="frida-console" class="shell-output"></pre>
-      </div>
-    </div>
-  `;
-  wireFridaControls(serial);
-  refreshFridaStatus(serial);
-  loadFridaScripts();
+    </section>`;
+  document.getElementById('frida-process-refresh-btn').addEventListener('click', () => loadFridaProcesses(serial));
+  document.getElementById('frida-process-filter').addEventListener('input', renderFridaProcessTable);
   loadFridaProcesses(serial);
+}
+
+function renderFridaScriptView(body, serial) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row">
+        <select id="frida-script-select"></select>
+        <input type="text" id="frida-script-name" placeholder="Script name" style="width:180px;">
+        <button id="frida-load-script-btn">Load</button>
+        <button id="frida-save-script-btn">Save</button>
+        <button id="frida-delete-script-btn">Delete</button>
+      </div>
+      <textarea id="frida-script-editor" spellcheck="false" style="width:100%; min-height:280px; font-family:Consolas, monospace;"></textarea>
+      <div class="section-head" style="margin-top:14px;">
+        <div><h3>Attach</h3><p class="section-desc">Attach to the process selected on the Target tab, or spawn a fresh package.</p></div>
+      </div>
+      <div class="toolbar-row">
+        <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
+        <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" style="flex:1; min-width:200px;">
+        <button id="frida-spawn-btn">Spawn + attach</button>
+      </div>
+    </section>`;
+  document.getElementById('frida-load-script-btn').addEventListener('click', loadSelectedFridaScript);
+  document.getElementById('frida-save-script-btn').addEventListener('click', saveFridaScript);
+  document.getElementById('frida-delete-script-btn').addEventListener('click', deleteFridaScript);
+  document.getElementById('frida-attach-selected-btn').addEventListener('click', () => attachFrida(serial));
+  document.getElementById('frida-spawn-btn').addEventListener('click', () => attachFrida(serial, true));
+  loadFridaScripts();
 }
 
 function setFridaConsole(text, append = false, type = 'info') {
@@ -112,21 +162,6 @@ async function refreshFridaStatus(serial) {
   }
 }
 
-function wireFridaControls(serial) {
-  document.getElementById('frida-refresh-btn').addEventListener('click', () => refreshFridaStatus(serial));
-  document.getElementById('frida-process-refresh-btn').addEventListener('click', () => loadFridaProcesses(serial));
-  document.getElementById('frida-process-filter').addEventListener('input', renderFridaProcessTable);
-  document.getElementById('frida-push-btn').addEventListener('click', () => fridaServerAction(serial, 'push'));
-  document.getElementById('frida-start-btn').addEventListener('click', () => fridaServerAction(serial, 'start'));
-  document.getElementById('frida-stop-btn').addEventListener('click', () => fridaServerAction(serial, 'stop'));
-  document.getElementById('frida-load-script-btn').addEventListener('click', loadSelectedFridaScript);
-  document.getElementById('frida-save-script-btn').addEventListener('click', saveFridaScript);
-  document.getElementById('frida-delete-script-btn').addEventListener('click', deleteFridaScript);
-  document.getElementById('frida-attach-selected-btn').addEventListener('click', () => attachFrida(serial));
-  document.getElementById('frida-spawn-btn').addEventListener('click', () => attachFrida(serial, true));
-  document.getElementById('frida-detach-btn').addEventListener('click', detachFrida);
-}
-
 async function fridaServerAction(serial, action) {
   const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/server/${action}`, { method: 'POST' });
   const data = await res.json();
@@ -164,7 +199,8 @@ function renderFridaProcessTable() {
     btn.addEventListener('click', () => {
       document.querySelectorAll('button[data-frida-pid]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      body.dataset.selectedPid = btn.dataset.fridaPid;
+      FRIDA_SELECTED_PID = btn.dataset.fridaPid;
+      toast(`Selected PID ${FRIDA_SELECTED_PID} — switch to the Script tab to attach`, 'info', 2500);
     });
   });
 }
@@ -211,16 +247,14 @@ async function deleteFridaScript() {
 
 async function attachFrida(serial, spawn = false) {
   const source = document.getElementById('frida-script-editor').value;
-  const bodyEl = document.getElementById('frida-process-body');
   const body = { script_source: source };
   if (spawn) {
     const pkg = document.getElementById('frida-spawn-package').value.trim();
     if (!pkg) { toast('Enter a package name to spawn', 'error'); return; }
     body.spawn = pkg;
   } else {
-    const pid = bodyEl.dataset.selectedPid;
-    if (!pid) { toast('Select a running process first', 'error'); return; }
-    body.target = pid;
+    if (!FRIDA_SELECTED_PID) { toast('Select a running process on the Target tab first', 'error'); return; }
+    body.target = FRIDA_SELECTED_PID;
   }
   const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/attach`, { method: 'POST', body });
   const data = await res.json();

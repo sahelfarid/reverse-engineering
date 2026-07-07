@@ -60,7 +60,6 @@ function renderSettingsTab() {
                 <input type="password" id="settings-new-password" placeholder="Min 6 characters" autocomplete="new-password">
                 <button type="button" class="toggle-visibility" data-target="settings-new-password">Show</button>
               </div>
-              <span class="field-hint">Minimum 6 characters.</span>
             </div>
             <div class="field">
               <label for="settings-confirm-password">Confirm new password</label>
@@ -193,16 +192,25 @@ const SETTINGS_FIELDS = [
     hint: 'Where exported files are saved on this machine.' },
 ];
 
+// Tip content is derived from SETTINGS_FIELDS' own `hint` property rather than
+// duplicated -- one source of truth for both the (now hidden) inline hint and
+// the "?" button's modal content.
+SETTINGS_FIELDS.forEach((f) => {
+  if (f.hint) TIP_REGISTRY[`settings.field.${f.id}`] = { title: f.label, body: `<p>${escapeHtml(f.hint)}</p>` };
+});
+TIP_REGISTRY['settings.field.set-theme'] = {
+  title: 'Theme', body: '<p>"System" follows your OS light/dark setting.</p>',
+};
+
 function fieldHTML(f, value) {
   return `
     <div class="field${f.wide ? ' field-wide' : ''}">
-      <label for="${f.id}">${escapeHtml(f.label)}</label>
+      <label for="${f.id}">${escapeHtml(f.label)}${f.hint ? ` <button type="button" class="tip-btn" data-tip-key="settings.field.${f.id}" aria-label="Help">?</button>` : ''}</label>
       <div class="input-wrap${f.unit ? ' has-unit' : ''}">
         <input type="${f.type}" id="${f.id}" value="${escapeHtml(String(value ?? ''))}"
           class="${f.mono ? 'mono-input' : ''}" placeholder="${f.type === 'text' ? '(auto-detect)' : ''}">
         ${f.unit ? `<span class="unit">${f.unit}</span>` : ''}
       </div>
-      ${f.hint ? `<span class="field-hint">${escapeHtml(f.hint)}</span>` : ''}
     </div>`;
 }
 
@@ -235,13 +243,12 @@ async function loadSettingsForm() {
   container.innerHTML = `
     ${SETTINGS_FIELDS.map((f) => fieldHTML(f, s[f.key])).join('')}
     <div class="field">
-      <label for="set-theme">Theme</label>
+      <label for="set-theme">Theme <button type="button" class="tip-btn" data-tip-key="settings.field.set-theme" aria-label="Help">?</button></label>
       <select id="set-theme">
         <option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option>
         <option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option>
         <option value="system" ${s.theme === 'system' ? 'selected' : ''}>System (follow OS)</option>
       </select>
-      <span class="field-hint">"System" follows your OS light/dark setting.</span>
     </div>
   `;
   window.APP_SETTINGS = s;

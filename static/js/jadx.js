@@ -2,9 +2,21 @@
 // search, view manifest/static findings, and export a report. Read-only --
 // there is no save/rebuild/reinstall here (that's the APKTool tab's job).
 
+Object.assign(TIP_REGISTRY, {
+  'jadx.warning': {
+    title: 'Authorized analysis only',
+    body: '<p>Decompile and inspect APKs you own or are explicitly allowed to test.</p>',
+  },
+  'jadx.search': {
+    title: 'Search options',
+    body: '<p>"Ignore case" is on by default, matching the server default.</p><p>Max results is capped at 500 server-side regardless of what you enter here.</p>',
+  },
+});
+
 let JADX_PACKAGES = [];
 let JADX_PROJECT = null;
 let JADX_PATH = '';
+let JADX_SUBNAV = null;
 
 function renderJadxTab() {
   const pane = document.getElementById('tab-jadx');
@@ -13,101 +25,142 @@ function renderJadxTab() {
   const device = getSelectedDevice();
   const hasDevice = !!(serial && device && device.state === 'device');
   pane.innerHTML = `
-    <div class="alert warn">Authorized analysis only. Decompile and inspect APKs you own or are explicitly allowed to test.</div>
-    <div class="card-grid">
-      <div class="card" style="grid-column: span 2;">
-        <h3>Decompile from device</h3>
-        ${hasDevice ? `
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <input type="text" id="jadx-package-filter" placeholder="Filter packages..." style="flex:1; min-width:180px;">
-          <select id="jadx-package-select" style="flex:2; min-width:260px;"></select>
-          <button id="jadx-load-packages-btn">Refresh packages</button>
-        </div>
-        <div style="display:flex; gap:14px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-          <label class="muted"><input type="checkbox" id="jadx-opt-no-res"> Skip resources (--no-res, faster)</label>
-          <label class="muted"><input type="checkbox" id="jadx-opt-deobf"> Deobfuscate names (--deobf)</label>
-          <button id="jadx-decompile-btn">Decompile</button>
-        </div>` : `<div class="muted">Select an authorized, online device to decompile from a package.</div>`}
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>JADX</h2>
+        <p class="muted">
+          Decompile, browse, search, and analyze APKs as readable Java.
+          <button type="button" class="tip-btn" data-tip-key="jadx.warning" aria-label="Help">?</button>
+        </p>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Import a local file</h3>
-        <div class="muted" style="margin-bottom:8px;">Analyze an APK/DEX/JAR already on this machine instead of pulling one from a device.</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <input type="file" id="jadx-import-file" accept=".apk,.dex,.jar">
-          <input type="text" id="jadx-import-name" placeholder="Project name (optional)" style="flex:1; min-width:160px;">
-          <button id="jadx-import-btn">Import &amp; decompile</button>
-        </div>
+      <div id="jadx-subnav"></div>
+    </div>
+  `;
+  JADX_SUBNAV = createSubNav(document.getElementById('jadx-subnav'), 'adbpanel.subnav.jadx', [
+    { key: 'decompile', label: 'Decompile', render: (body) => renderJadxDecompileView(body, serial, hasDevice) },
+    { key: 'projects', label: 'Projects', render: (body) => renderJadxProjectsView(body) },
+    { key: 'search', label: 'Search', render: (body) => renderJadxSearchView(body) },
+    { key: 'viewer', label: 'Viewer', render: (body) => renderJadxViewerView(body) },
+    { key: 'manifest', label: 'Manifest', render: (body) => renderJadxManifestView(body) },
+    { key: 'analysis', label: 'Analysis', render: (body) => renderJadxAnalysisView(body) },
+  ]);
+  if (typeof refreshJadxToolStatus === 'function') refreshJadxToolStatus();
+}
+
+function renderJadxDecompileView(body, serial, hasDevice) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Decompile from device</h3></div></div>
+      ${hasDevice ? `
+      <div class="toolbar-row">
+        <input type="text" id="jadx-package-filter" placeholder="Filter packages..." style="flex:1; min-width:180px;">
+        <select id="jadx-package-select" style="flex:2; min-width:260px;"></select>
+        <button id="jadx-load-packages-btn">Refresh packages</button>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Projects</h3>
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <button id="jadx-refresh-projects-btn">Refresh projects</button>
-          <button id="jadx-delete-project-btn" disabled>Delete project</button>
-        </div>
-        <div id="jadx-projects-body" class="muted">Loading...</div>
+      <div class="toolbar-row">
+        <label class="muted"><input type="checkbox" id="jadx-opt-no-res"> Skip resources (--no-res, faster)</label>
+        <label class="muted"><input type="checkbox" id="jadx-opt-deobf"> Deobfuscate names (--deobf)</label>
+        <button id="jadx-decompile-btn">Decompile</button>
+      </div>` : `<div class="muted">Select an authorized, online device to decompile from a package.</div>`}
+    </section>
+    <section class="panel-section">
+      <div class="section-head">
+        <div><h3>Import a local file</h3><p class="section-desc">Analyze an APK/DEX/JAR already on this machine instead of pulling one from a device.</p></div>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Project browser</h3>
-        <div class="breadcrumbs" id="jadx-breadcrumbs"></div>
+      <div class="toolbar-row">
+        <input type="file" id="jadx-import-file" accept=".apk,.dex,.jar">
+        <input type="text" id="jadx-import-name" placeholder="Project name (optional)" style="flex:1; min-width:160px;">
+        <button id="jadx-import-btn">Import &amp; decompile</button>
+      </div>
+    </section>`;
+  if (hasDevice) {
+    document.getElementById('jadx-load-packages-btn').addEventListener('click', () => loadJadxPackages(serial));
+    document.getElementById('jadx-package-filter').addEventListener('input', renderJadxPackageSelect);
+    document.getElementById('jadx-decompile-btn').addEventListener('click', () => startJadxDecompile(serial));
+    loadJadxPackages(serial);
+  }
+  document.getElementById('jadx-import-btn').addEventListener('click', startJadxImport);
+}
+
+function renderJadxProjectsView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Projects</h3></div></div>
+      <div class="toolbar-row">
+        <button id="jadx-refresh-projects-btn">Refresh projects</button>
+        <button id="jadx-delete-project-btn" ${JADX_PROJECT ? '' : 'disabled'}>Delete project</button>
+      </div>
+      <div id="jadx-projects-body" class="muted">Loading...</div>
+    </section>
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Project browser</h3></div></div>
+      <div class="breadcrumbs" id="jadx-breadcrumbs"></div>
+      <div class="table-wrap auto-height">
         <table>
           <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Action</th></tr></thead>
           <tbody id="jadx-browser-body"><tr><td colspan="4" class="muted">Open a project.</td></tr></tbody>
         </table>
       </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Search</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <input type="text" id="jadx-search-query" placeholder="Search decompiled sources..." style="flex:1; min-width:220px;">
-          <label class="muted"><input type="checkbox" id="jadx-search-regex"> Regex</label>
-          <button id="jadx-search-btn">Search</button>
-        </div>
-        <div id="jadx-search-results" class="muted" style="margin-top:8px;">No search yet.</div>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Viewer (read-only)</h3>
-        <div class="muted" id="jadx-editor-path">No file open</div>
-        <textarea id="jadx-editor" readonly spellcheck="false" style="width:100%; min-height:320px; font-family:Consolas, monospace;"></textarea>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Manifest</h3>
-        <div style="margin-bottom:8px;"><button id="jadx-load-manifest-btn" disabled>Load manifest</button></div>
-        <div id="jadx-manifest-body" class="muted">Open a project first.</div>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Static findings</h3>
-        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-          <button id="jadx-run-findings-btn" disabled>Run static checks</button>
-          <button id="jadx-load-findings-btn" disabled>Load last findings</button>
-        </div>
-        <div id="jadx-findings-body" class="muted">Open a project first.</div>
-      </div>
-      <div class="card" style="grid-column: span 2;">
-        <h3>Report export</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="jadx-export-json-btn" disabled>Export JSON</button>
-          <button id="jadx-export-md-btn" disabled>Export Markdown</button>
-        </div>
-      </div>
-    </div>
-  `;
-  wireJadxControls(serial);
-  if (typeof refreshJadxToolStatus === 'function') refreshJadxToolStatus();
-  if (hasDevice) loadJadxPackages(serial);
-  loadJadxProjects();
-}
-
-function wireJadxControls(serial) {
-  const loadPkgsBtn = document.getElementById('jadx-load-packages-btn');
-  if (loadPkgsBtn) loadPkgsBtn.addEventListener('click', () => loadJadxPackages(serial));
-  const filterEl = document.getElementById('jadx-package-filter');
-  if (filterEl) filterEl.addEventListener('input', renderJadxPackageSelect);
-  const decompileBtn = document.getElementById('jadx-decompile-btn');
-  if (decompileBtn) decompileBtn.addEventListener('click', () => startJadxDecompile(serial));
-  document.getElementById('jadx-import-btn').addEventListener('click', startJadxImport);
+    </section>`;
   document.getElementById('jadx-refresh-projects-btn').addEventListener('click', loadJadxProjects);
   document.getElementById('jadx-delete-project-btn').addEventListener('click', deleteJadxProject);
+  loadJadxProjects();
+  if (JADX_PROJECT) browseJadxProject();
+}
+
+function renderJadxSearchView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div><h3>Search</h3></div>
+        <button type="button" class="tip-btn" data-tip-key="jadx.search" aria-label="Help">?</button>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="jadx-search-query" placeholder="Search decompiled sources..." style="flex:1; min-width:220px;">
+        <label class="muted"><input type="checkbox" id="jadx-search-regex"> Regex</label>
+        <label class="muted"><input type="checkbox" id="jadx-search-ignore-case" checked> Ignore case</label>
+        <input type="number" id="jadx-search-max-results" value="200" min="1" max="500" style="width:80px;" title="Server caps at 500">
+        <button id="jadx-search-btn">Search</button>
+      </div>
+      <div id="jadx-search-results" class="muted">No search yet.</div>
+    </section>`;
   document.getElementById('jadx-search-btn').addEventListener('click', searchJadxProject);
+}
+
+function renderJadxViewerView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="muted" id="jadx-editor-path">No file open</div>
+      <textarea id="jadx-editor" readonly spellcheck="false" style="width:100%; min-height:360px; font-family:Consolas, monospace;"></textarea>
+    </section>`;
+}
+
+function renderJadxManifestView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="toolbar-row"><button id="jadx-load-manifest-btn" ${JADX_PROJECT ? '' : 'disabled'}>Load manifest</button></div>
+      <div id="jadx-manifest-body" class="muted">${JADX_PROJECT ? 'Not loaded yet.' : 'Open a project first.'}</div>
+    </section>`;
   document.getElementById('jadx-load-manifest-btn').addEventListener('click', loadJadxManifest);
+}
+
+function renderJadxAnalysisView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Static findings</h3></div></div>
+      <div class="toolbar-row">
+        <button id="jadx-run-findings-btn" ${JADX_PROJECT ? '' : 'disabled'}>Run static checks</button>
+        <button id="jadx-load-findings-btn" ${JADX_PROJECT ? '' : 'disabled'}>Load last findings</button>
+      </div>
+      <div id="jadx-findings-body" class="muted">${JADX_PROJECT ? 'Not loaded yet.' : 'Open a project first.'}</div>
+    </section>
+    <section class="panel-section">
+      <div class="section-head"><div><h3>Report export</h3></div></div>
+      <div class="toolbar-row">
+        <button id="jadx-export-json-btn" ${JADX_PROJECT ? '' : 'disabled'}>Export JSON</button>
+        <button id="jadx-export-md-btn" ${JADX_PROJECT ? '' : 'disabled'}>Export Markdown</button>
+      </div>
+    </section>`;
   document.getElementById('jadx-run-findings-btn').addEventListener('click', runJadxFindings);
   document.getElementById('jadx-load-findings-btn').addEventListener('click', loadJadxFindings);
   document.getElementById('jadx-export-json-btn').addEventListener('click', () => exportJadxReport('json'));
@@ -202,16 +255,13 @@ async function loadJadxProjects() {
 }
 
 function openJadxProject(project, path) {
+  // Delete/Manifest/Findings/Export buttons live behind other sub-nav pills now
+  // and aren't necessarily mounted at this point -- they derive their enabled
+  // state from JADX_PROJECT themselves each time their own pill renders.
   JADX_PROJECT = project;
   JADX_PATH = path || '';
-  document.getElementById('jadx-delete-project-btn').disabled = false;
-  document.getElementById('jadx-load-manifest-btn').disabled = false;
-  document.getElementById('jadx-run-findings-btn').disabled = false;
-  document.getElementById('jadx-load-findings-btn').disabled = false;
-  document.getElementById('jadx-export-json-btn').disabled = false;
-  document.getElementById('jadx-export-md-btn').disabled = false;
-  document.getElementById('jadx-manifest-body').innerHTML = '<span class="muted">Not loaded yet.</span>';
-  document.getElementById('jadx-findings-body').innerHTML = '<span class="muted">Not loaded yet.</span>';
+  const deleteBtn = document.getElementById('jadx-delete-project-btn');
+  if (deleteBtn) deleteBtn.disabled = false;
   return browseJadxProject();
 }
 
@@ -251,6 +301,9 @@ async function openJadxFile(path) {
   const res = await apiFetch(`/api/jadx/projects/${encodeURIComponent(JADX_PROJECT)}/file?path=${encodeURIComponent(path)}`);
   const data = await res.json();
   if (!data.ok) { toast(`Open failed: ${data.error}`, 'error'); return; }
+  // The viewer lives behind its own sub-nav pill -- switch to it first so the
+  // freshly-loaded content lands on mounted DOM.
+  if (JADX_SUBNAV) JADX_SUBNAV.activate('viewer');
   document.getElementById('jadx-editor-path').textContent = path;
   document.getElementById('jadx-editor').value = data.content || '';
 }
@@ -261,8 +314,13 @@ async function searchJadxProject() {
   const resultsEl = document.getElementById('jadx-search-results');
   if (!query) { toast('Enter a search query', 'error'); return; }
   const regex = document.getElementById('jadx-search-regex').checked;
+  const ignoreCase = document.getElementById('jadx-search-ignore-case').checked;
+  const maxResults = parseInt(document.getElementById('jadx-search-max-results').value, 10) || 200;
   resultsEl.innerHTML = 'Searching...';
-  const res = await apiFetch(`/api/jadx/projects/${encodeURIComponent(JADX_PROJECT)}/search?q=${encodeURIComponent(query)}&regex=${regex ? '1' : '0'}`);
+  const params = new URLSearchParams({
+    q: query, regex: regex ? '1' : '0', ignore_case: ignoreCase ? '1' : '0', max_results: String(maxResults),
+  });
+  const res = await apiFetch(`/api/jadx/projects/${encodeURIComponent(JADX_PROJECT)}/search?${params.toString()}`);
   const data = await res.json();
   if (!data.ok) { resultsEl.innerHTML = `<span class="badge red">${escapeHtml(data.error)}</span>`; return; }
   const hits = data.results || [];

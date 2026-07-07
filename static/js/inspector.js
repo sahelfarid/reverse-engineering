@@ -10,15 +10,21 @@ function renderInspectorTab() {
     return;
   }
   pane.innerHTML = `
-    <div class="card">
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <select id="inspector-package-select" style="flex:1;"><option>Loading packages…</option></select>
-        <button id="inspector-inspect-btn">Inspect</button>
-        <button id="inspector-open-btn">Open</button>
-        <button id="inspector-kill-btn">Kill</button>
-        <button id="inspector-restart-btn">Restart</button>
+    <div class="panel-page">
+      <div class="panel-header">
+        <h2>App Inspector</h2>
+        <p class="muted">Pick a package to view its permissions, components, and app data.</p>
       </div>
-      <div id="inspector-body"></div>
+      <section class="panel-section">
+        <div class="toolbar-row">
+          <select id="inspector-package-select" style="flex:1;"><option>Loading packages…</option></select>
+          <button id="inspector-inspect-btn">Inspect</button>
+          <button id="inspector-open-btn">Open</button>
+          <button id="inspector-kill-btn">Kill</button>
+          <button id="inspector-restart-btn">Restart</button>
+        </div>
+        <div id="inspector-body" class="muted">Select a package and click Inspect.</div>
+      </section>
     </div>
   `;
   loadInspectorPackages(serial);
@@ -43,6 +49,10 @@ async function loadInspectorPackages(serial) {
   }
 }
 
+function inspectorListOrDash(arr) {
+  return arr.length ? arr.map(escapeHtml).join('<br>') : '<span class="muted">none</span>';
+}
+
 async function inspectSelected(serial) {
   const pkg = document.getElementById('inspector-package-select').value;
   const body = document.getElementById('inspector-body');
@@ -53,32 +63,49 @@ async function inspectSelected(serial) {
     const data = await res.json();
     if (!data.ok) { body.innerHTML = `<div class="alert error">${escapeHtml(data.error)}</div>`; return; }
     const d = data.detail;
-    const listOrDash = (arr) => arr.length ? arr.map(escapeHtml).join('<br>') : '<span class="muted">none</span>';
-    body.innerHTML = `
-      <div class="card-grid">
-        <div class="card"><h4>Requested permissions</h4>${listOrDash(d.permissions.requested)}</div>
-        <div class="card"><h4>Granted</h4>${listOrDash(d.permissions.granted)}</div>
-        <div class="card"><h4>Denied</h4>${listOrDash(d.permissions.denied)}</div>
-        <div class="card"><h4>Native ABI</h4>${escapeHtml(d.permissions.primary_abi || '—')} / ${escapeHtml(d.permissions.secondary_abi || '—')}</div>
-      </div>
-      <div class="card-grid">
-        <div class="card"><h4>Activities</h4>${listOrDash(d.components.activities)}</div>
-        <div class="card"><h4>Services</h4>${listOrDash(d.components.services)}</div>
-        <div class="card"><h4>Receivers</h4>${listOrDash(d.components.receivers)}</div>
-        <div class="card"><h4>Providers</h4>${listOrDash(d.components.providers)}</div>
-      </div>
-      <div class="card">
-        <h4>App data</h4>
-        ${d.data.accessible ? `
-          <div>Size: ${escapeHtml(d.data.size || '—')}</div>
-          <div>Databases: ${listOrDash(d.data.databases)}</div>
-          <div>Shared prefs: ${listOrDash(d.data.shared_prefs)}</div>
-        ` : `<div class="alert info">${escapeHtml(d.data.limitation)}</div>`}
-      </div>
-    `;
+    // Mounted lazily (post-action) rather than at tab-render time -- same
+    // createSubNav helper other tabs use pre-action, invoked here once we
+    // actually have data to show behind the pills.
+    createSubNav(body, 'adbpanel.subnav.inspector', [
+      { key: 'permissions', label: 'Permissions', render: (v) => renderInspectorPermissionsView(v, d) },
+      { key: 'components', label: 'Components', render: (v) => renderInspectorComponentsView(v, d) },
+      { key: 'data', label: 'App data', render: (v) => renderInspectorDataView(v, d) },
+    ]);
   } catch (err) {
     body.innerHTML = `<div class="alert error">${escapeHtml(String(err))}</div>`;
   }
+}
+
+function renderInspectorPermissionsView(body, d) {
+  body.innerHTML = `
+    <div class="card-grid">
+      <div class="card"><h4>Requested permissions</h4>${inspectorListOrDash(d.permissions.requested)}</div>
+      <div class="card"><h4>Granted</h4>${inspectorListOrDash(d.permissions.granted)}</div>
+      <div class="card"><h4>Denied</h4>${inspectorListOrDash(d.permissions.denied)}</div>
+      <div class="card"><h4>Native ABI</h4>${escapeHtml(d.permissions.primary_abi || '—')} / ${escapeHtml(d.permissions.secondary_abi || '—')}</div>
+    </div>`;
+}
+
+function renderInspectorComponentsView(body, d) {
+  body.innerHTML = `
+    <div class="card-grid">
+      <div class="card"><h4>Activities</h4>${inspectorListOrDash(d.components.activities)}</div>
+      <div class="card"><h4>Services</h4>${inspectorListOrDash(d.components.services)}</div>
+      <div class="card"><h4>Receivers</h4>${inspectorListOrDash(d.components.receivers)}</div>
+      <div class="card"><h4>Providers</h4>${inspectorListOrDash(d.components.providers)}</div>
+    </div>`;
+}
+
+function renderInspectorDataView(body, d) {
+  body.innerHTML = `
+    <div class="card">
+      <h4>App data</h4>
+      ${d.data.accessible ? `
+        <div>Size: ${escapeHtml(d.data.size || '—')}</div>
+        <div>Databases: ${inspectorListOrDash(d.data.databases)}</div>
+        <div>Shared prefs: ${inspectorListOrDash(d.data.shared_prefs)}</div>
+      ` : `<div class="alert info">${escapeHtml(d.data.limitation)}</div>`}
+    </div>`;
 }
 
 async function quickPackageAction(serial, action) {
