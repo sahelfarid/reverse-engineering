@@ -4,10 +4,10 @@ Date: 2026-07-06 (original audit), updated 2026-07-07.
 
 Scope: implementation review, test coverage review, and verification notes for the Python modules under `adb/`, their Flask blueprints under `routes/`, plus the local app/auth/config/desktop support code.
 
-Each module now has two documents:
+Each module has a living implementation note:
 
 - **`docs/modules/<name>.md`** -- living documentation: purpose, API routes, behavior, and permanent known limitations (accepted tradeoffs, not bugs). Read this to understand how a module works.
-- **`docs/module-audits/<name>.md`** -- audit history: what's still open, if anything. Read this to see whether there's outstanding follow-up work.
+- **`docs/module-audits/<name>.md`** -- optional audit history for modules that still have unresolved follow-up work. When there are no remaining steps, the audit note is removed.
 
 ## Verification Run
 
@@ -109,37 +109,9 @@ Several modules (Properties, Battery/Hardware, Process Manager, Root Detection, 
 - [Frida](../modules/frida.md)
 - [JADX](../modules/jadx.md)
 
-## Audit Files (open items only)
+## Audit Files With Remaining Work
 
-- [Core, Auth, Config, Desktop](core-auth-config-desktop.md)
-- [ADB Manager](adb-manager.md)
-- [Devices And Dashboard](devices-dashboard.md)
-- [Shell](shell.md)
-- [Files](files.md)
-- [Packages](packages.md)
-- [App Inspector](app-inspector.md)
-- [Logcat](logcat.md)
-- [Screen](screen.md)
-- [Automation](automation.md)
-- [Properties](properties.md)
-- [Network And Wireless](network-wireless.md)
-- [Backup](backup.md)
-- [Battery And Hardware](battery-hardware.md)
-- [Permissions](permissions.md)
-- [Clipboard](clipboard.md)
-- [Process Manager](process-manager.md)
-- [Jobs](jobs.md)
-- [Root Detection](root-detection.md)
-- [Frida](frida.md)
-- [JADX](jadx.md)
-
-As of 2026-07-07, all 19 audit files from the original sweep report zero open items (see the per-file
-notes above). `app-inspector.md` and `devices-dashboard.md`'s real-device smoke-test recommendations
-are now closed by `tests/test_app_inspector_smoke.py` / `tests/test_devices_dashboard_smoke.py` (skip
-cleanly with no device attached); `shell.md`'s frontend-testing recommendation is closed by
-`tests/frontend/shell.test.js`; `jobs.md`'s pruning-policy recommendation is closed by an actual
-pruning implementation in `adb/jobs.py`. `jadx.md` (added later, alongside the new JADX module) is
-also at zero open items; see its own file for the two bugs the implementation pass found and fixed.
+No per-module audit files are currently being kept. Every module reviewed in this sweep is fully implemented, and the remaining follow-up items are now closed.
 
 ## Cross-Cutting Findings
 
