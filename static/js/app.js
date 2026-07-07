@@ -77,6 +77,36 @@ function currentTab() {
   return active ? active.dataset.tab : null;
 }
 
+// --- Nested sub-nav (progressive disclosure inside a tab pane) -------------
+// views: [{ key, label, render(bodyEl) }]. Persists the last-active view per
+// storageKey the same way initTabs persists the active top-level tab, and
+// re-renders only the swapped-in view's body -- any "must stay visible"
+// surface (e.g. a live screenshot canvas or streaming console) belongs in a
+// sibling element the caller renders itself, outside rootEl.
+function createSubNav(rootEl, storageKey, views, opts = {}) {
+  if (!rootEl || !views || !views.length) return null;
+  const defaultKey = opts.defaultKey || views[0].key;
+  const saved = localStorage.getItem(storageKey);
+  const initialKey = views.some((v) => v.key === saved) ? saved : defaultKey;
+  rootEl.innerHTML = `<div class="subnav-pills" role="tablist"></div><div class="subnav-body"></div>`;
+  const pillsEl = rootEl.querySelector('.subnav-pills');
+  const bodyEl = rootEl.querySelector('.subnav-body');
+  pillsEl.innerHTML = views.map((v) =>
+    `<button type="button" class="subnav-pill" data-subnav-key="${escapeHtml(v.key)}">${escapeHtml(v.label)}</button>`).join('');
+  function activate(key) {
+    const view = views.find((v) => v.key === key) || views[0];
+    pillsEl.querySelectorAll('.subnav-pill').forEach((btn) =>
+      btn.classList.toggle('active', btn.dataset.subnavKey === view.key));
+    localStorage.setItem(storageKey, view.key);
+    bodyEl.innerHTML = '';
+    view.render(bodyEl);
+  }
+  pillsEl.querySelectorAll('.subnav-pill').forEach((btn) =>
+    btn.addEventListener('click', () => activate(btn.dataset.subnavKey)));
+  activate(initialKey);
+  return { activate, pillsEl, bodyEl };
+}
+
 // Nav items marked data-requires-device only make sense against a connected,
 // authorized device -- hide them otherwise instead of leaving a click target
 // whose pane will just say "select a device". Group labels above a

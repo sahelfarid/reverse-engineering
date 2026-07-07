@@ -234,6 +234,16 @@ td.audit-details {
 }
 td.audit-details.expanded { -webkit-line-clamp: unset; overflow: visible; }
 
+.subnav-pills { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
+.subnav-pill {
+  background: transparent; border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 14px; font-size: 0.85em; color: var(--muted); cursor: pointer;
+}
+.subnav-pill:hover { color: var(--text); border-color: var(--accent); }
+.subnav-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.subnav-body { display: flex; flex-direction: column; gap: 16px; }
+.subnav-pinned { margin-bottom: 16px; }
+
 .job-row { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .job-row:last-child { border-bottom: none; }
 .job-type { width: 110px; flex-shrink: 0; font-size: 0.85em; color: var(--muted); text-transform: capitalize; }
