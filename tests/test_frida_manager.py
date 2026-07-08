@@ -366,6 +366,41 @@ def test_stream_messages_yields_queued_message_then_heartbeat():
     frida_manager._sessions.clear()
 
 
+def test_drain_messages_raises_for_unknown_session():
+    with pytest.raises(manager.AdbError, match="session not found"):
+        frida_manager.drain_messages("does-not-exist", 1.0)
+
+
+def test_drain_messages_collects_until_queue_empty():
+    import queue as queue_module
+
+    class _FakeQueue:
+        """Same rationale as the stream_messages fake above: raises Empty
+        immediately once drained instead of blocking for the real timeout."""
+        def __init__(self, items):
+            self._items = list(items)
+
+        def get(self, timeout=None):
+            if self._items:
+                return self._items.pop(0)
+            raise queue_module.Empty()
+
+    frida_manager._sessions.clear()
+    fake_queue = _FakeQueue([{"message": {"type": "send", "payload": "a"}}, {"message": {"type": "send", "payload": "b"}}])
+    frida_manager._sessions["sess1"] = {"queue": fake_queue}
+    result = frida_manager.drain_messages("sess1", 5.0)
+    assert [m["message"]["payload"] for m in result] == ["a", "b"]
+    frida_manager._sessions.clear()
+
+
+def test_drain_messages_returns_empty_when_deadline_already_passed():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["sess1"] = {"queue": object()}  # never touched: deadline is already past
+    result = frida_manager.drain_messages("sess1", -1.0)
+    assert result == []
+    frida_manager._sessions.clear()
+
+
 def test_script_hash_is_stable_sha256():
     h1 = frida_manager.script_hash("console.log(1);")
     h2 = frida_manager.script_hash("console.log(1);")

@@ -353,6 +353,32 @@ def stream_messages(session_id: str):
             yield {"message": {"type": "heartbeat"}}
 
 
+def drain_messages(session_id: str, duration_sec: float) -> list[dict]:
+    """Collect all messages a session's script emits over a fixed window.
+
+    Unlike stream_messages() (which yields forever with heartbeats for an SSE
+    client), this is for callers that spawn+observe+detach synchronously
+    within a single request and just want "everything the script said in the
+    next N seconds".
+    """
+    with _sessions_lock:
+        entry = _sessions.get(session_id)
+    if not entry:
+        raise manager.AdbError("session not found")
+    q = entry["queue"]
+    deadline = time.time() + duration_sec
+    collected: list[dict] = []
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        try:
+            collected.append(q.get(timeout=remaining))
+        except queue.Empty:
+            break
+    return collected
+
+
 def detach(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.pop(session_id, None)
