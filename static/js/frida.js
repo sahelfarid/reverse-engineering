@@ -80,13 +80,30 @@ function renderFridaStatusView(body, serial) {
         <button id="frida-push-btn">Push server</button>
         <button id="frida-start-btn">Start server</button>
         <button id="frida-stop-btn">Stop server</button>
+        <button id="frida-sysinfo-btn" title="Device details Frida reports (os, arch, access)">Device info</button>
       </div>
+      <pre id="frida-sysinfo" class="shell-output" style="display:none; margin-top:10px; max-height:220px;"></pre>
     </section>`;
   document.getElementById('frida-refresh-btn').addEventListener('click', () => refreshFridaStatus(serial));
   document.getElementById('frida-push-btn').addEventListener('click', () => fridaServerAction(serial, 'push'));
   document.getElementById('frida-start-btn').addEventListener('click', () => fridaServerAction(serial, 'start'));
   document.getElementById('frida-stop-btn').addEventListener('click', () => fridaServerAction(serial, 'stop'));
+  document.getElementById('frida-sysinfo-btn').addEventListener('click', () => loadFridaSystemInfo(serial));
   refreshFridaStatus(serial);
+}
+
+async function loadFridaSystemInfo(serial) {
+  const out = document.getElementById('frida-sysinfo');
+  if (!out) return;
+  out.style.display = 'block';
+  out.textContent = 'Querying device...';
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/system`);
+    const data = await res.json();
+    out.textContent = data.ok ? JSON.stringify(data.system, null, 2) : `Error: ${data.error}`;
+  } catch (err) {
+    out.textContent = String(err);
+  }
 }
 
 let FRIDA_TARGET_MODE = 'processes';
@@ -110,6 +127,7 @@ function renderFridaTargetView(body, serial) {
           <tbody id="frida-process-body"><tr><td colspan="4">Loading...</td></tr></tbody>
         </table>
       </div>
+      <pre id="frida-target-detail" class="shell-output" style="display:none; margin-top:10px; max-height:220px;"></pre>
       <div class="section-head" style="margin-top:14px;">
         <div><h3>Spawn gating</h3><p class="section-desc">Suspend every newly launched process so you can attach before it runs.</p></div>
       </div>
@@ -318,6 +336,7 @@ function renderFridaProcessTable() {
       <td>${escapeHtml(p.name || '-')}</td>
       <td>
         <button data-frida-pid="${p.pid}">Select</button>
+        <button data-frida-infoproc="${p.pid}" title="Show process metadata">Info</button>
         <button data-frida-killproc="${p.pid}" title="Kill this process">Kill</button>
       </td>
     </tr>
@@ -325,12 +344,29 @@ function renderFridaProcessTable() {
   body.querySelectorAll('button[data-frida-pid]').forEach((btn) => {
     btn.addEventListener('click', () => selectFridaPid(btn.dataset.fridaPid, btn));
   });
+  body.querySelectorAll('button[data-frida-infoproc]').forEach((btn) => {
+    btn.addEventListener('click', () => loadFridaProcessDetail(getSelectedSerial(), btn.dataset.fridaInfoproc));
+  });
   body.querySelectorAll('button[data-frida-killproc]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const serial = getSelectedSerial();
       if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
     });
   });
+}
+
+async function loadFridaProcessDetail(serial, query) {
+  const out = document.getElementById('frida-target-detail');
+  if (!serial || !out) return;
+  out.style.display = 'block';
+  out.textContent = 'Loading process metadata...';
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/process?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    out.textContent = data.ok ? JSON.stringify(data.process, null, 2) : `Error: ${data.error}`;
+  } catch (err) {
+    out.textContent = String(err);
+  }
 }
 
 function selectFridaPid(pid, btn) {

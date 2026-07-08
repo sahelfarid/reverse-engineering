@@ -752,6 +752,56 @@ def test_resume_pid_rejects_invalid_pid():
             frida_manager.kill_pid("s1", 0)
 
 
+def test_get_system_parameters_returns_json_safe_dict():
+    params = {"os": {"id": "android", "version": "14"}, "arch": "arm64", "access": "full"}
+    device = types.SimpleNamespace(query_system_parameters=lambda: params)
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.get_system_parameters("s1")
+    assert result == params
+
+
+def test_get_system_parameters_wraps_errors():
+    device = types.SimpleNamespace(
+        query_system_parameters=MagicMock(side_effect=RuntimeError("no server"))
+    )
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        with pytest.raises(manager.AdbError, match="failed to query system parameters"):
+            frida_manager.get_system_parameters("s1")
+
+
+def test_get_process_by_name_returns_metadata():
+    proc = types.SimpleNamespace(pid=42, name="com.example", parameters={"path": "/data/app/x", "ppid": 1})
+    device = MagicMock()
+    device.get_process.return_value = proc
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.get_process("s1", "com.example")
+    assert result == {"pid": 42, "name": "com.example", "parameters": {"path": "/data/app/x", "ppid": 1}}
+    device.get_process.assert_called_once_with("com.example", scope="metadata")
+
+
+def test_get_process_by_pid_scans_enumerate():
+    procs = [
+        types.SimpleNamespace(pid=10, name="a", parameters={}),
+        types.SimpleNamespace(pid=42, name="com.example", parameters={"user": "u0_a1"}),
+    ]
+    device = MagicMock()
+    device.enumerate_processes.return_value = procs
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.get_process("s1", "42")
+    assert result["pid"] == 42 and result["name"] == "com.example"
+    assert result["parameters"] == {"user": "u0_a1"}
+
+
+def test_get_process_missing_query_and_unknown_pid():
+    device = MagicMock()
+    device.enumerate_processes.return_value = []
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        with pytest.raises(manager.AdbError, match="missing process name or pid"):
+            frida_manager.get_process("s1", "")
+        with pytest.raises(manager.AdbError, match="no process with pid 99"):
+            frida_manager.get_process("s1", "99")
+
+
 def test_list_applications_sorts_running_first_then_name():
     apps = [
         types.SimpleNamespace(identifier="com.z.bg", name="Zeta", pid=0),

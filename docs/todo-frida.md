@@ -38,7 +38,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 5 | Device add/remove events | Live-update device list on plug/unplug instead of manual refresh. | `device_manager.on('added'/'removed'/'changed')` | ⬜ Pending implementation |
 | 6 | Device-lost handling | Detect `device.is_lost()` / `'lost'` and tear down its sessions cleanly. | `device.on('lost')`, `device.is_lost()` | ⬜ Pending implementation |
 | 7 | Local device (Gadget-in-emulator) | Support `get_local_device()` for host-side / emulator injection flows. | `frida.get_local_device()` | ⬜ Pending implementation |
-| 8 | System parameters readout | Surface OS/arch/access details Frida reports per device. | `device.query_system_parameters()` | ⬜ Pending implementation |
+| 8 | System parameters readout | Surface OS/arch/access details Frida reports per device. | `device.query_system_parameters()` | ✅ Implemented |
 | 9 | Message bus channel | Expose the device signalling bus for portal/agent messaging. | `device.get_bus()` | ⬜ Pending implementation |
 | 10 | Open service / channel | Generic access to device services and raw channels (e.g. dbus, socket). | `device.open_service()`, `device.open_channel()` | ⬜ Pending implementation |
 | 11 | Unpair device | Remove pairing state for iOS-style/paired transports. | `device.unpair()` | ⬜ Pending implementation |
@@ -68,7 +68,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 25 | Installed-app enumeration | List installed apps (not just running procs) with identifier + name. | `device.enumerate_applications()` | ✅ Implemented |
 | 26 | App icons & metadata | Show app icons and running/backgrounded state in the picker. | `enumerate_applications(scope='full')` | ⬜ Pending implementation |
 | 27 | Frontmost app shortcut | One-click attach to the currently foregrounded app. | `device.get_frontmost_application()` | ✅ Implemented |
-| 28 | Rich process query | Fetch a single process with metadata (path, parameters). | `device.get_process(name, scope=...)` | ⬜ Pending implementation |
+| 28 | Rich process query | Fetch a single process with metadata (path, parameters). | `device.get_process(name, scope=...)` | ✅ Implemented |
 | 29 | Spawn with argv/env/cwd | Spawn with custom arguments, environment, and working directory. | `device.spawn(program, argv=, envp=, cwd=)` | ⬜ Pending implementation |
 | 30 | Spawn stdio capture | Capture child stdout/stderr into the console. | `spawn(..., stdio='pipe')` + `device.on('output')` | ⬜ Pending implementation |
 | 31 | Spawn gating | Auto-suspend **every** new process to hook it before it runs. | `device.enable_spawn_gating()` + `'spawn-added'` | ✅ Implemented |

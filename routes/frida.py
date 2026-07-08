@@ -78,6 +78,20 @@ def frontmost_application(serial):
     return err or jsonify({"ok": True, "application": result})
 
 
+@bp.get("/api/devices/<serial>/frida/system")
+@auth.login_required
+def system_parameters(serial):
+    result, err = _wrap(frida_manager.get_system_parameters, serial)
+    return err or jsonify({"ok": True, "system": result})
+
+
+@bp.get("/api/devices/<serial>/frida/process")
+@auth.login_required
+def process_details(serial):
+    result, err = _wrap(frida_manager.get_process, serial, request.args.get("q", ""))
+    return err or jsonify({"ok": True, "process": result})
+
+
 @bp.post("/api/devices/<serial>/frida/spawn-gating/enable")
 @auth.login_required
 @auth.csrf_protect

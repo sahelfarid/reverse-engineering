@@ -83,6 +83,37 @@ def test_frontmost_application_success(auth_client):
     assert res.get_json()["application"] == app
 
 
+def test_system_parameters_success(auth_client):
+    system = {"os": {"id": "android"}, "arch": "arm64"}
+    with patch("routes.frida.frida_manager.get_system_parameters", return_value=system):
+        res = auth_client.get("/api/devices/s1/frida/system")
+    assert res.status_code == 200
+    assert res.get_json()["system"] == system
+
+
+def test_system_parameters_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.get_system_parameters",
+               side_effect=adb_manager.AdbError("failed to query system parameters")):
+        res = auth_client.get("/api/devices/s1/frida/system")
+    assert res.status_code == 400
+
+
+def test_process_details_success(auth_client):
+    proc = {"pid": 42, "name": "com.example", "parameters": {"path": "/x"}}
+    with patch("routes.frida.frida_manager.get_process", return_value=proc) as mock_get:
+        res = auth_client.get("/api/devices/s1/frida/process?q=com.example")
+    assert res.status_code == 200
+    assert res.get_json()["process"] == proc
+    mock_get.assert_called_once_with("s1", "com.example")
+
+
+def test_process_details_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.get_process",
+               side_effect=adb_manager.AdbError("process lookup failed")):
+        res = auth_client.get("/api/devices/s1/frida/process?q=nope")
+    assert res.status_code == 400
+
+
 def test_enable_spawn_gating_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.enable_spawn_gating", return_value={"ok": True, "spawn_gating": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:

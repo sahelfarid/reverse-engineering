@@ -569,6 +569,52 @@ def kill_pid(serial: str, pid) -> dict:
     return {"ok": True, "pid": value, "killed": True}
 
 
+def get_system_parameters(serial: str) -> dict:
+    """Return the device details Frida reports (os, arch, platform, access, name)."""
+    device = _frida_device(serial)
+    try:
+        params = device.query_system_parameters()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to query system parameters: {exc}") from exc
+    return _json_safe(dict(params or {}))
+
+
+def get_process(serial: str, query) -> dict:
+    """Fetch a single process (by name or pid) with metadata (path, ppid, user).
+
+    Name lookup uses device.get_process(); a numeric query is resolved against
+    enumerate_processes() since the Frida API matches processes by name only.
+    """
+    device = _frida_device(serial)
+    q = str(query or "").strip()
+    if not q:
+        raise manager.AdbError("missing process name or pid")
+    try:
+        if q.isdigit():
+            pid = int(q)
+            try:
+                procs = device.enumerate_processes(scope="metadata")
+            except TypeError:
+                procs = device.enumerate_processes()
+            proc = next((p for p in procs if p.pid == pid), None)
+            if proc is None:
+                raise manager.AdbError(f"no process with pid {pid}")
+        else:
+            try:
+                proc = device.get_process(q, scope="metadata")
+            except TypeError:
+                proc = device.get_process(q)
+    except manager.AdbError:
+        raise
+    except Exception as exc:
+        raise manager.AdbError(f"process lookup failed: {exc}") from exc
+    return {
+        "pid": proc.pid,
+        "name": proc.name,
+        "parameters": _json_safe(dict(getattr(proc, "parameters", None) or {})),
+    }
+
+
 def _refresh_detach_state(entry: dict) -> None:
     """Poll Frida's is_detached() so list/get reflect reality without waiting for the signal."""
     if entry.get("detached"):
