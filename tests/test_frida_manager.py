@@ -339,6 +339,63 @@ def test_list_processes_falls_back_to_adb_on_frida_failure():
     assert result == [{"pid": 1, "name": "init"}]
 
 
+def test_list_script_exports_returns_sorted_names():
+    frida_manager._sessions.clear()
+    script = types.SimpleNamespace(list_exports=lambda: ["zzz", "aaa"])
+    frida_manager._sessions["s"] = {"script": script}
+    assert frida_manager.list_script_exports("s") == ["aaa", "zzz"]
+    frida_manager._sessions.clear()
+
+
+def test_list_script_exports_unknown_session():
+    frida_manager._sessions.clear()
+    with pytest.raises(manager.AdbError, match="session not found"):
+        frida_manager.list_script_exports("nope")
+
+
+def test_list_script_exports_rejects_detached_session():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"detached": True, "script": object()}
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager.list_script_exports("s")
+    frida_manager._sessions.clear()
+
+
+def test_call_script_export_invokes_and_json_sanitizes_bytes():
+    frida_manager._sessions.clear()
+    exports = types.SimpleNamespace(get_secret=lambda a, b: {"blob": b"\x01\x02", "sum": a + b})
+    script = types.SimpleNamespace(list_exports=lambda: ["get_secret"], exports=exports)
+    frida_manager._sessions["s"] = {"script": script}
+    result = frida_manager.call_script_export("s", "get_secret", [2, 3])
+    assert result == {"blob": {"__bytes_hex__": "0102"}, "sum": 5}
+    frida_manager._sessions.clear()
+
+
+def test_call_script_export_rejects_invalid_name():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"script": object()}
+    with pytest.raises(manager.AdbError, match="invalid export name"):
+        frida_manager.call_script_export("s", "bad-name", [])
+    frida_manager._sessions.clear()
+
+
+def test_call_script_export_rejects_non_list_args():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"script": types.SimpleNamespace(list_exports=lambda: ["foo"])}
+    with pytest.raises(manager.AdbError, match="must be a JSON array"):
+        frida_manager.call_script_export("s", "foo", {"not": "a list"})
+    frida_manager._sessions.clear()
+
+
+def test_call_script_export_unknown_export():
+    frida_manager._sessions.clear()
+    script = types.SimpleNamespace(list_exports=lambda: ["foo"], exports=types.SimpleNamespace())
+    frida_manager._sessions["s"] = {"script": script}
+    with pytest.raises(manager.AdbError, match="not found"):
+        frida_manager.call_script_export("s", "bar", [])
+    frida_manager._sessions.clear()
+
+
 def test_detach_handler_records_reason_and_enqueues_message():
     import queue as queue_module
 

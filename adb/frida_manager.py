@@ -509,6 +509,69 @@ def drain_messages(session_id: str, duration_sec: float) -> list[dict]:
     return collected
 
 
+_EXPORT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _json_safe(value):
+    """Make an rpc.exports return value JSON-serializable.
+
+    Frida can hand back bytes (e.g. Memory.readByteArray results); represent
+    those as a hex string rather than letting jsonify choke on them.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return {"__bytes_hex__": bytes(value).hex()}
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _live_session(session_id: str) -> dict:
+    with _sessions_lock:
+        entry = _sessions.get(session_id)
+    if not entry:
+        raise manager.AdbError("session not found")
+    if entry.get("detached"):
+        raise manager.AdbError("session is detached")
+    return entry
+
+
+def list_script_exports(session_id: str) -> list[str]:
+    """List the rpc.exports functions a session's script defines (snake_case)."""
+    entry = _live_session(session_id)
+    try:
+        return sorted(str(name) for name in entry["script"].list_exports())
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list exports: {exc}") from exc
+
+
+def call_script_export(session_id: str, name: str, args: list | None = None):
+    """Invoke an rpc.exports function by name with positional JSON args."""
+    name = str(name or "").strip()
+    if not _EXPORT_NAME_RE.match(name):
+        raise manager.AdbError("invalid export name")
+    if args is None:
+        args = []
+    if not isinstance(args, list):
+        raise manager.AdbError("export args must be a JSON array")
+    entry = _live_session(session_id)
+    try:
+        available = set(entry["script"].list_exports())
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list exports: {exc}") from exc
+    if name not in available:
+        raise manager.AdbError(f"export '{name}' not found")
+    fn = getattr(entry["script"].exports, name, None)
+    if fn is None:
+        raise manager.AdbError(f"export '{name}' not callable")
+    try:
+        result = fn(*args)
+    except Exception as exc:
+        raise manager.AdbError(f"export call failed: {exc}") from exc
+    return _json_safe(result)
+
+
 def detach(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.pop(session_id, None)

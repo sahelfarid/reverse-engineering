@@ -127,6 +127,26 @@ def stream(session_id):
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@bp.get("/api/frida/sessions/<session_id>/exports")
+@auth.login_required
+def list_exports(session_id):
+    result, err = _wrap(frida_manager.list_script_exports, session_id)
+    return err or jsonify({"ok": True, "exports": result})
+
+
+@bp.post("/api/frida/sessions/<session_id>/exports/<name>")
+@auth.login_required
+@auth.csrf_protect
+def call_export(session_id, name):
+    d = request.get_json(silent=True) or {}
+    args = d.get("args", [])
+    result, err = _wrap(frida_manager.call_script_export, session_id, name, args)
+    if err:
+        return err
+    auth.audit_log("frida_export_call", {"session_id": session_id, "export": name})
+    return jsonify({"ok": True, "result": result})
+
+
 @bp.post("/api/frida/sessions/<session_id>/detach")
 @auth.login_required
 @auth.csrf_protect

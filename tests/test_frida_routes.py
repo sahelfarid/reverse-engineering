@@ -154,6 +154,36 @@ def test_stream_emits_error_event_for_unknown_session(auth_client):
     assert "session not found" in body
 
 
+def test_list_exports_success(auth_client):
+    with patch("routes.frida.frida_manager.list_script_exports", return_value=["foo", "bar"]):
+        res = auth_client.get("/api/frida/sessions/sess-1/exports")
+    assert res.status_code == 200
+    assert res.get_json()["exports"] == ["foo", "bar"]
+
+
+def test_call_export_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.call_script_export", return_value={"x": 1}) as mock_call, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/exports/get_data", {"args": [1, 2]})
+    assert res.status_code == 200
+    assert res.get_json()["result"] == {"x": 1}
+    mock_call.assert_called_once_with("sess-1", "get_data", [1, 2])
+    mock_audit.assert_called_once_with("frida_export_call", {"session_id": "sess-1", "export": "get_data"})
+
+
+def test_call_export_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.call_script_export",
+               side_effect=adb_manager.AdbError("export 'x' not found")):
+        res = _post(auth_client, "/api/frida/sessions/sess-1/exports/x", {"args": []})
+    assert res.status_code == 400
+
+
+def test_call_export_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    res = client.post("/api/frida/sessions/sess-1/exports/foo")
+    assert res.status_code == 403
+
+
 def test_detach_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.detach", return_value={"ok": True, "detached": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:
