@@ -213,7 +213,7 @@ def test_edit_shared_pref_entry_updates_existing_key():
          patch("adb.app_data._write_bytes", return_value=(True, None)) as mock_write:
         result = app_data.edit_shared_pref_entry("s1", "com.example.app", "shared_prefs/app.xml", "token", "new", "string")
     assert result == {"ok": True, "path": "shared_prefs/app.xml", "scope": "private", "key": "token"}
-    written = mock_write.call_args.args[3]
+    written = mock_write.call_args.args[4]
     root_text = written.decode("utf-8")
     assert "<string name=\"token\">new</string>" in root_text
     assert "old" not in root_text
