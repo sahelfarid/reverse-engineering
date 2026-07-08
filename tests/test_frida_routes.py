@@ -155,7 +155,7 @@ def test_attach_with_script_name_resolves_source_and_audit_logs(auth_client):
         res = _post(auth_client, "/api/devices/s1/frida/attach", {"script_name": "demo", "target": "1234"})
     assert res.status_code == 200
     assert res.get_json()["session_id"] == "sess-1"
-    mock_attach.assert_called_once_with("s1", "1234", "console.log(1);", None)
+    mock_attach.assert_called_once_with("s1", "1234", "console.log(1);", None, None)
     audit_details = mock_audit.call_args[0][1]
     assert audit_details["script_name"] == "demo"
     assert "script_sha256" in audit_details
@@ -169,7 +169,7 @@ def test_attach_with_inline_source_and_spawn_target(auth_client):
             "script_source": "console.log(2);", "spawn": "com.example.app",
         })
     assert res.status_code == 200
-    mock_attach.assert_called_once_with("s1", {"spawn": "com.example.app"}, "console.log(2);", None)
+    mock_attach.assert_called_once_with("s1", {"spawn": "com.example.app"}, "console.log(2);", None, None)
 
 
 def test_attach_passes_runtime(auth_client):
@@ -179,8 +179,31 @@ def test_attach_passes_runtime(auth_client):
             "script_source": "console.log(3);", "target": "42", "runtime": "v8",
         })
     assert res.status_code == 200
-    mock_attach.assert_called_once_with("s1", "42", "console.log(3);", "v8")
+    mock_attach.assert_called_once_with("s1", "42", "console.log(3);", "v8", None)
     assert mock_audit.call_args[0][1]["runtime"] == "v8"
+
+
+def test_attach_passes_params(auth_client):
+    with patch("routes.frida.frida_manager.attach", return_value="sess-p") as mock_attach, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/attach", {
+            "script_source": "console.log(PARAMS.className);",
+            "target": "7",
+            "params": {"className": "com.example.App"},
+        })
+    assert res.status_code == 200
+    mock_attach.assert_called_once_with(
+        "s1", "7", "console.log(PARAMS.className);", None, {"className": "com.example.App"},
+    )
+    assert mock_audit.call_args[0][1]["has_params"] is True
+
+
+def test_attach_rejects_non_object_params(auth_client):
+    res = _post(auth_client, "/api/devices/s1/frida/attach", {
+        "script_source": "x", "target": "1", "params": ["not", "an", "object"],
+    })
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "params must be a JSON object"
 
 
 def test_attach_maps_adb_error(auth_client):

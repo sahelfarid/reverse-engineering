@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 import lzma
 import queue
 import re
@@ -643,15 +644,46 @@ def list_sessions() -> list[dict]:
 
 
 _VALID_RUNTIMES = frozenset({"qjs", "v8"})
+_MAX_PARAMS_BYTES = 16 * 1024
 
 
-def attach(serial: str, target, script_source: str, runtime: str | None = None) -> str:
+def inject_script_params(script_source: str, params: dict | None) -> str:
+    """Prepend `const PARAMS = {...};` so agents can read named load-time parameters.
+
+    `params` must be a JSON object (dict). Nested structures are allowed; values are
+    serialized with json.dumps. Empty/None params leave the source unchanged.
+    """
+    if not params:
+        return script_source
+    if not isinstance(params, dict):
+        raise manager.AdbError("params must be a JSON object")
+    try:
+        encoded = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise manager.AdbError(f"params are not JSON-serializable: {exc}") from exc
+    if len(encoded.encode("utf-8")) > _MAX_PARAMS_BYTES:
+        raise manager.AdbError("params payload is too large")
+    prelude = f"const PARAMS = {encoded};\n"
+    combined = prelude + script_source
+    if len(combined.encode("utf-8")) > MAX_SCRIPT_BYTES:
+        raise manager.AdbError("script source is empty or too large")
+    return combined
+
+
+def attach(
+    serial: str,
+    target,
+    script_source: str,
+    runtime: str | None = None,
+    params: dict | None = None,
+) -> str:
     if not script_source or len(script_source.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise manager.AdbError("script source is empty or too large")
     if runtime is not None:
         runtime = str(runtime).strip().lower() or None
     if runtime is not None and runtime not in _VALID_RUNTIMES:
         raise manager.AdbError(f"invalid runtime '{runtime}' (expected qjs or v8)")
+    script_source = inject_script_params(script_source, params)
     check_version_compatibility(serial)
     device = _frida_device(serial)
     spawned_pid = None

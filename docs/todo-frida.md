@@ -18,7 +18,8 @@ Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#13** vers
 guard, **#25/#27** installed-app enumeration + frontmost shortcut, **#31/#32/#37** spawn
 gating + pending-spawn queue + kill, **#39/#42** detach-reason + session state polling,
 **#47/#48** RPC exports + two-way `script.post`, **#49–#51** structured logs + QJS/V8
-runtime + eternalize, **#83/#84** full SSL-pinning and root-detection agents.
+runtime + eternalize, **#58** parametrized scripts, **#83/#84** full SSL-pinning and
+root-detection agents.
 Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 `PortalService`, `FileMonitor`, snapshots, etc.
 
@@ -107,7 +108,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 55 | Snapshot warmup | Use a heap snapshot to cut agent startup latency. | `session.snapshot_script()`, `create_script(..., snapshot=)` | ⬜ Pending implementation |
 | 56 | Script debugger (Inspector) | Attach Chrome DevTools / V8 Inspector to a script. | `script.enable_debugger(port)` | ⬜ Pending implementation |
 | 57 | Script interrupt/terminate | Interrupt a busy script or force-terminate a runaway one. | `script.interrupt()`, `script.terminate()` | ⬜ Pending implementation |
-| 58 | Parametrized scripts | Inject named parameters (class, method, address) into templates at load. | Prepend a `const PARAMS = {...}` prelude | ⬜ Pending implementation |
+| 58 | Parametrized scripts | Inject named parameters (class, method, address) into templates at load. | Prepend a `const PARAMS = {...}` prelude | ✅ Implemented |
 
 ## F. Native Instrumentation Primitives (surfaced as UI/agent features)
 
@@ -186,10 +187,10 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | B. frida-server & Gadget Provisioning | 13–24 | 1 (#13) | 11 | ⬜ Partial |
 | C. Process, Application & Spawn Control | 25–38 | 5 (#25, #27, #31, #32, #37) | 9 | ⬜ Partial |
 | D. Session Lifecycle | 39–46 | 2 (#39, #42) | 6 | ⬜ Partial |
-| E. Script Engine & RPC | 47–58 | 5 (#47–#51) | 7 | ⬜ Partial |
+| E. Script Engine & RPC | 47–58 | 6 (#47–#51, #58) | 6 | ⬜ Partial |
 | F. Native Instrumentation Primitives | 59–72 | 0 | 14 | ⬜ Pending implementation |
 | G. Java / Android Runtime Instrumentation | 73–82 | 0 | 10 | ⬜ Pending implementation |
 | H. Ready-Made Bypass & Monitoring Modules | 83–92 | 2 (#83, #84) | 8 | ⬜ Partial |
 | I. Tooling / CLI Parity | 93–96 | 0 | 4 | ⬜ Pending implementation |
 | J. Console, Output & UX | 97–100 | 0 | 4 | ⬜ Pending implementation |
-| **Total** | **100** | **15** | **85** | **15 ✅ / 85 ⬜** |
+| **Total** | **100** | **16** | **84** | **16 ✅ / 84 ⬜** |

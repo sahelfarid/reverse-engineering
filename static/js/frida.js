@@ -220,6 +220,7 @@ function renderFridaScriptView(body, serial) {
           <option value="qjs">qjs</option>
           <option value="v8">v8</option>
         </select>
+        <input type="text" id="frida-script-params" placeholder='PARAMS JSON, e.g. {"className":"com.example.App"}' style="flex:1; min-width:220px;" title="Injected as const PARAMS = {...} before the script">
         <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
         <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
         <button id="frida-spawn-btn">Spawn + attach</button>
@@ -450,6 +451,20 @@ async function attachFrida(serial, spawn = false) {
   const runtimeEl = document.getElementById('frida-runtime-select');
   const runtime = runtimeEl && runtimeEl.value ? runtimeEl.value : '';
   if (runtime) body.runtime = runtime;
+  const paramsText = (document.getElementById('frida-script-params')?.value || '').trim();
+  if (paramsText) {
+    try {
+      const params = JSON.parse(paramsText);
+      if (!params || typeof params !== 'object' || Array.isArray(params)) {
+        toast('PARAMS must be a JSON object', 'error');
+        return;
+      }
+      body.params = params;
+    } catch (e) {
+      toast('PARAMS must be valid JSON', 'error');
+      return;
+    }
+  }
   if (spawn) {
     const pkg = document.getElementById('frida-spawn-package').value.trim();
     if (!pkg) { toast('Enter a package name to spawn', 'error'); return; }
@@ -470,8 +485,11 @@ async function attachFrida(serial, spawn = false) {
     const el = document.getElementById(id);
     if (el) el.disabled = false;
   });
-  const runtimeNote = runtime ? ` runtime=${runtime}` : '';
-  setFridaConsole(`Attached session ${fridaSessionId}${runtimeNote}`);
+  const notes = [];
+  if (runtime) notes.push(`runtime=${runtime}`);
+  if (body.params) notes.push('params');
+  const note = notes.length ? ` (${notes.join(', ')})` : '';
+  setFridaConsole(`Attached session ${fridaSessionId}${note}`);
   startFridaStream(fridaSessionId);
   startFridaSessionPoll(fridaSessionId);
 }

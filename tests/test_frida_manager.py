@@ -209,6 +209,82 @@ def test_attach_rejects_invalid_runtime():
         frida_manager.attach("s1", "1", "console.log(1);", runtime="spidermonkey")
 
 
+def test_inject_script_params_prepends_const():
+    out = frida_manager.inject_script_params("console.log(PARAMS.x);", {"x": 1, "y": "z"})
+    assert out.startswith("const PARAMS = ")
+    assert "console.log(PARAMS.x);" in out
+    assert '"x":1' in out or '"x": 1' in out
+
+
+def test_inject_script_params_noop_when_empty():
+    assert frida_manager.inject_script_params("src", None) == "src"
+    assert frida_manager.inject_script_params("src", {}) == "src"
+
+
+def test_inject_script_params_rejects_non_dict():
+    with pytest.raises(manager.AdbError, match="JSON object"):
+        frida_manager.inject_script_params("src", ["a"])
+
+
+def test_attach_injects_params_into_create_script(monkeypatch):
+    frida_manager._sessions.clear()
+    created = {}
+
+    class FakeScript:
+        def on(self, event, handler):
+            pass
+
+        def set_log_handler(self, handler):
+            pass
+
+        def load(self):
+            pass
+
+        def unload(self):
+            pass
+
+    class FakeSession:
+        def create_script(self, source, name=None, snapshot=None, runtime=None):
+            created["source"] = source
+            return FakeScript()
+
+        def on(self, event, handler):
+            pass
+
+        def detach(self):
+            pass
+
+        def is_detached(self):
+            return False
+
+    class FakeDevice:
+        id = "serial-1"
+
+        def __init__(self):
+            self.session = FakeSession()
+
+        def attach(self, target):
+            return self.session
+
+    fake_device = FakeDevice()
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_device_manager=lambda: types.SimpleNamespace(enumerate_devices=lambda: [fake_device]),
+        get_usb_device=lambda timeout=5: fake_device,
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager, "check_version_compatibility", lambda serial: None)
+
+    sid = frida_manager.attach(
+        "serial-1", "1", "console.log(PARAMS.className);",
+        params={"className": "com.example.App"},
+    )
+    assert created["source"].startswith("const PARAMS = ")
+    assert "com.example.App" in created["source"]
+    assert "console.log(PARAMS.className);" in created["source"]
+    frida_manager.detach(sid)
+
+
 def _fake_streaming_response(body: bytes):
     resp = MagicMock()
     resp.raise_for_status = MagicMock()

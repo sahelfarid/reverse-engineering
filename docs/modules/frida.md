@@ -35,7 +35,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | GET | `/api/devices/<serial>/frida/pending-spawn` | List spawn-gated processes awaiting resume/kill. |
 | POST | `/api/devices/<serial>/frida/resume/<pid>` | Resume a suspended process. |
 | POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process via the Frida device API. |
-| POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. Optional `runtime` (`qjs`/`v8`). |
+| POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. Optional `runtime` (`qjs`/`v8`) and `params` object (injected as `const PARAMS`). |
 | GET | `/api/frida/sessions` | List active sessions (refreshes `is_detached()`). |
 | GET | `/api/frida/sessions/<session_id>` | One session's state; polls Frida `is_detached()`. |
 | GET | `/api/frida/sessions/<session_id>/stream` | SSE stream of a session's messages. |
@@ -60,6 +60,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - `rpc.exports` on an attached script can be listed and invoked over HTTP. Export names are validated (`^[A-Za-z_][A-Za-z0-9_]*$`), args must be a JSON array, detached sessions are rejected, and `bytes` results are JSON-encoded as `{"__bytes_hex__": ...}`. Export calls are audit-logged by name (never args).
 - Scripts install a structured `set_log_handler` so `console.log` / `warn` / `error` arrive on the message stream as `{"type": "log", "level": ..., "payload": ...}` and the UI colors them by level.
 - Attach accepts optional `runtime` (`qjs` or `v8`) and passes it to `session.create_script(..., runtime=...)`. Invalid values are rejected; the chosen runtime is stored on the session and audit-logged.
+- Attach accepts optional `params` (JSON object). It is prepended as `const PARAMS = {...};` so templates can read named load-time values without editing source. Params are size-capped; audit logs only `has_params` (never the values).
 - `eternalize_session()` calls `script.eternalize()` then detaches without `unload()`, so the agent keeps running on the target after the UI disconnects.
 - The session registry and message queues are process-local.
 
