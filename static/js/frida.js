@@ -144,8 +144,12 @@ async function refreshFridaStatus(serial) {
     } else if (ds.error) {
       card.innerHTML = `<span class="badge red">Error</span> ${escapeHtml(ds.error)}`;
     } else {
+      const versionBadge = ds.server_pushed && ds.version_match === false
+        ? `<span class="badge red" title="frida-server ${escapeHtml(ds.server_version || '?')} is incompatible with the installed Python frida ${escapeHtml(FRIDA_STATUS.python_version || '')}. Push server to fix.">version mismatch: server ${escapeHtml(ds.server_version || '?')}</span>`
+        : (ds.server_version ? `<span class="badge green">server ${escapeHtml(ds.server_version)}</span>` : '');
       card.innerHTML = `
         <span class="badge green">Frida ${escapeHtml(FRIDA_STATUS.python_version || '')}</span>
+        ${versionBadge}
         ABI ${escapeHtml(ds.abi || '-')} | root ${ds.root_available ? 'yes' : 'no'} | cached ${ds.server_cached ? 'yes' : 'no'} | pushed ${ds.server_pushed ? 'yes' : 'no'} | running ${ds.server_running ? 'yes' : 'no'}
       `;
     }

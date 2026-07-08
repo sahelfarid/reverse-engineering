@@ -108,6 +108,7 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
         get_usb_device=lambda timeout=5: fake_device,
     )
     monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager, "check_version_compatibility", lambda serial: None)
 
     session_id = frida_manager.attach("serial-1", "1234", "console.log('hi');")
 
@@ -289,6 +290,7 @@ def test_get_status_aggregates_devices():
          patch("adb.frida_manager._server_path") as mock_server_path, \
          patch("adb.frida_manager.manager.has_root_shell", return_value=True), \
          patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager.get_server_version", return_value="16.2.1"), \
          patch("adb.frida_manager._running_pid", return_value="123"):
         mock_server_path.return_value.is_file.return_value = True
         result = frida_manager.get_status()
@@ -296,6 +298,8 @@ def test_get_status_aggregates_devices():
     assert len(result["devices"]) == 1  # unauthorized device excluded
     assert result["devices"][0]["serial"] == "s1"
     assert result["devices"][0]["server_running"] is True
+    assert result["devices"][0]["server_version"] == "16.2.1"
+    assert result["devices"][0]["version_match"] is True
 
 
 def test_get_status_handles_list_devices_failure():
@@ -399,6 +403,52 @@ def test_drain_messages_returns_empty_when_deadline_already_passed():
     result = frida_manager.drain_messages("sess1", -1.0)
     assert result == []
     frida_manager._sessions.clear()
+
+
+def test_versions_compatible_matches_major_minor():
+    assert frida_manager.versions_compatible("16.2.1", "16.2.5") is True
+    assert frida_manager.versions_compatible("16.2.1", "16.2.1") is True
+
+
+def test_versions_compatible_rejects_major_minor_divergence():
+    assert frida_manager.versions_compatible("16.2.1", "16.3.0") is False
+    assert frida_manager.versions_compatible("17.0.0", "16.2.1") is False
+
+
+def test_versions_compatible_is_permissive_when_side_unknown():
+    assert frida_manager.versions_compatible(None, "16.2.1") is True
+    assert frida_manager.versions_compatible("16.2.1", None) is True
+    assert frida_manager.versions_compatible("16.2.1", "garbage") is True
+
+
+def test_get_server_version_returns_none_when_not_pushed():
+    with patch("adb.frida_manager._is_pushed", return_value=False):
+        assert frida_manager.get_server_version("s1") is None
+
+
+def test_get_server_version_parses_reported_version():
+    with patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager.manager.shell", return_value=("16.2.1\n", "", 0)):
+        assert frida_manager.get_server_version("s1") == "16.2.1"
+
+
+def test_get_server_version_returns_none_on_shell_failure():
+    with patch("adb.frida_manager._is_pushed", return_value=True), \
+         patch("adb.frida_manager.manager.shell", return_value=("", "not found", 1)):
+        assert frida_manager.get_server_version("s1") is None
+
+
+def test_check_version_compatibility_raises_on_mismatch():
+    with patch("adb.frida_manager._frida_version", return_value="17.0.0"), \
+         patch("adb.frida_manager.get_server_version", return_value="16.2.1"):
+        with pytest.raises(manager.AdbError, match="version mismatch"):
+            frida_manager.check_version_compatibility("s1")
+
+
+def test_check_version_compatibility_passes_when_compatible():
+    with patch("adb.frida_manager._frida_version", return_value="16.2.9"), \
+         patch("adb.frida_manager.get_server_version", return_value="16.2.1"):
+        assert frida_manager.check_version_compatibility("s1") is None
 
 
 def test_script_hash_is_stable_sha256():

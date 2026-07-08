@@ -99,6 +99,57 @@ def _frida_version() -> str | None:
     return getattr(frida, "__version__", None) if frida else None
 
 
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def _parse_version(value: str | None) -> tuple[int, int, int] | None:
+    match = _VERSION_RE.search(value or "")
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def get_server_version(serial: str) -> str | None:
+    """Return the version reported by the on-device frida-server, or None.
+
+    Runs `frida-server --version`; this only prints a string and does not need
+    root, so it works whenever the binary has been pushed and is executable.
+    """
+    if not _is_pushed(serial):
+        return None
+    stdout, _stderr, rc = manager.shell(serial, f"{FRIDA_SERVER_REMOTE} --version 2>/dev/null", timeout=8)
+    if rc != 0:
+        return None
+    parsed = _parse_version(stdout)
+    return ".".join(str(part) for part in parsed) if parsed else None
+
+
+def versions_compatible(client_version: str | None, server_version: str | None) -> bool:
+    """Frida's wire protocol is tied to major.minor; a mismatch there breaks attach.
+
+    Returns True when we cannot determine one side (so we never block on missing
+    information) and only False on a confirmed major.minor divergence.
+    """
+    client = _parse_version(client_version)
+    server = _parse_version(server_version)
+    if not client or not server:
+        return True
+    return client[:2] == server[:2]
+
+
+def check_version_compatibility(serial: str) -> None:
+    """Raise AdbError with a clear message when client/server versions diverge."""
+    client_version = _frida_version()
+    server_version = get_server_version(serial)
+    if not versions_compatible(client_version, server_version):
+        raise manager.AdbError(
+            "frida version mismatch: python frida "
+            f"{client_version} vs frida-server {server_version}. "
+            "Restart the server after pushing a matching build "
+            "(Push server re-downloads the version matching the installed package)."
+        )
+
+
 def _script_dir() -> Path:
     path = config.DATA_DIR / "frida_scripts"
     path.mkdir(parents=True, exist_ok=True)
@@ -197,6 +248,7 @@ def get_status() -> dict:
             root = manager.has_root_shell(serial)
             pushed = _is_pushed(serial)
             running_pid = _running_pid(serial) if root else None
+            server_version = get_server_version(serial) if pushed else None
             result["devices"].append({
                 "serial": serial,
                 "abi": abi,
@@ -205,6 +257,8 @@ def get_status() -> dict:
                 "server_pushed": pushed,
                 "server_running": bool(running_pid),
                 "pid": running_pid,
+                "server_version": server_version,
+                "version_match": versions_compatible(version, server_version),
             })
         except manager.AdbError as exc:
             result["devices"].append({"serial": serial, "error": str(exc)})
@@ -302,6 +356,7 @@ def list_sessions() -> list[dict]:
 def attach(serial: str, target, script_source: str) -> str:
     if not script_source or len(script_source.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise manager.AdbError("script source is empty or too large")
+    check_version_compatibility(serial)
     device = _frida_device(serial)
     spawned_pid = None
     if isinstance(target, dict):

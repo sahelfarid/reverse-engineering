@@ -40,6 +40,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 
 - Provides Frida Python package status, matching frida-server URL resolution/cache/download, server push/start/stop, Frida process listing with ADB fallback, attach/spawn, message streaming, detach, and script store CRUD.
 - Classic frida-server operations require `manager.has_root_shell()`.
+- `get_status()` reports each device's on-device `server_version` (from `frida-server --version`) and a `version_match` flag against the installed Python `frida`. `attach()` calls `check_version_compatibility()` first and raises a clear error on a major.minor divergence (the frida wire protocol is tied to major.minor), rather than letting attach fail with a cryptic engine error.
 - Script names are constrained, default templates are read-only, and script size is capped at 256 KiB.
 - Attach audit logs include target, script name, and source hash rather than full source.
 - The session registry and message queues are process-local.
