@@ -81,13 +81,19 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
             self.handlers = {}
             self.loaded = False
             self.unloaded = False
+            self.log_handler = None
 
         def on(self, event, handler):
             self.handlers[event] = handler
 
+        def set_log_handler(self, handler):
+            self.log_handler = handler
+
         def load(self):
             self.loaded = True
             self.handlers["message"]({"type": "send", "payload": "ready"}, None)
+            if self.log_handler:
+                self.log_handler("info", "hello from console.log")
 
         def unload(self):
             self.unloaded = True
@@ -97,8 +103,9 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
             self.script = FakeScript()
             self.detached = False
 
-        def create_script(self, source):
+        def create_script(self, source, name=None, snapshot=None, runtime=None):
             assert "console.log" in source
+            self.last_runtime = runtime
             return self.script
 
         def detach(self):
@@ -130,7 +137,10 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
     assert session_id in frida_manager._sessions
     entry = frida_manager._sessions[session_id]
     assert entry["script"].loaded is True
+    assert entry["script"].log_handler is not None
     assert entry["queue"].get_nowait()["message"]["payload"] == "ready"
+    log_msg = entry["queue"].get_nowait()["message"]
+    assert log_msg == {"type": "log", "level": "info", "payload": "hello from console.log"}
 
     assert frida_manager.detach(session_id) == {"ok": True, "detached": True}
     assert session_id not in frida_manager._sessions

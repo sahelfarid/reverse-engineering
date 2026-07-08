@@ -17,9 +17,10 @@ name/size validation, and audit logging.
 Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#13** version-match
 guard, **#25/#27** installed-app enumeration + frontmost shortcut, **#31/#32/#37** spawn
 gating + pending-spawn queue + kill, **#39** detach-reason reporting, **#47/#48** RPC
-exports + two-way `script.post`, **#83/#84** full SSL-pinning and root-detection agents.
+exports + two-way `script.post`, **#49** structured log handler, **#83/#84** full
+SSL-pinning and root-detection agents.
 Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
-`PortalService`, `FileMonitor`, snapshots, structured log handlers, etc.
+`PortalService`, `FileMonitor`, snapshots, etc.
 
 **Legend:** ⬜ Pending implementation · ✅ Implemented
 
@@ -97,7 +98,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 |---|---------|---------|----------------------|--------|
 | 47 | RPC exports invocation | Call `rpc.exports` functions from the UI with JSON args and see returns. | `script.exports.<fn>(...)`, `script.list_exports()` | ✅ Implemented |
 | 48 | Two-way messaging (post/recv) | Send messages **into** a running script, not just receive. | `script.post(message, data=)` + agent `recv()` | ✅ Implemented |
-| 49 | Structured log handler | Route `console.log/warn/error` with levels and clean formatting. | `script.set_log_handler()` | ⬜ Pending implementation |
+| 49 | Structured log handler | Route `console.log/warn/error` with levels and clean formatting. | `script.set_log_handler()` | ✅ Implemented |
 | 50 | Runtime selection (QJS/V8) | Choose the JS runtime per script for compatibility/perf. | `create_script(..., runtime='qjs'|'v8')` | ⬜ Pending implementation |
 | 51 | Script eternalize | Keep a script running after the client detaches (fire-and-forget). | `script.eternalize()` | ⬜ Pending implementation |
 | 52 | Hot reload on save | Reload the active script into the live session when the file changes. | `FileMonitor` + recreate script | ⬜ Pending implementation |
@@ -185,10 +186,10 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | B. frida-server & Gadget Provisioning | 13–24 | 1 (#13) | 11 | ⬜ Partial |
 | C. Process, Application & Spawn Control | 25–38 | 5 (#25, #27, #31, #32, #37) | 9 | ⬜ Partial |
 | D. Session Lifecycle | 39–46 | 1 (#39) | 7 | ⬜ Partial |
-| E. Script Engine & RPC | 47–58 | 2 (#47, #48) | 10 | ⬜ Partial |
+| E. Script Engine & RPC | 47–58 | 3 (#47–#49) | 9 | ⬜ Partial |
 | F. Native Instrumentation Primitives | 59–72 | 0 | 14 | ⬜ Pending implementation |
 | G. Java / Android Runtime Instrumentation | 73–82 | 0 | 10 | ⬜ Pending implementation |
 | H. Ready-Made Bypass & Monitoring Modules | 83–92 | 2 (#83, #84) | 8 | ⬜ Partial |
 | I. Tooling / CLI Parity | 93–96 | 0 | 4 | ⬜ Pending implementation |
 | J. Console, Output & UX | 97–100 | 0 | 4 | ⬜ Pending implementation |
-| **Total** | **100** | **11** | **89** | **11 ✅ / 89 ⬜** |
+| **Total** | **100** | **12** | **88** | **12 ✅ / 88 ⬜** |

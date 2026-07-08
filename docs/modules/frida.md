@@ -55,6 +55,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - Attach audit logs include target, script name, and source hash rather than full source.
 - Each session registers a `detached` signal handler; when the target quits/crashes/disconnects, the reason (and a crash summary when present) is recorded on the session and pushed into its message stream as a `{"type": "detached"}` event, and `list_sessions()` exposes `detached`/`detach_reason`.
 - `rpc.exports` on an attached script can be listed and invoked over HTTP. Export names are validated (`^[A-Za-z_][A-Za-z0-9_]*$`), args must be a JSON array, detached sessions are rejected, and `bytes` results are JSON-encoded as `{"__bytes_hex__": ...}`. Export calls are audit-logged by name (never args).
+- Scripts install a structured `set_log_handler` so `console.log` / `warn` / `error` arrive on the message stream as `{"type": "log", "level": ..., "payload": ...}` and the UI colors them by level.
 - The session registry and message queues are process-local.
 
 ## Known Limitations

@@ -638,7 +638,15 @@ def attach(serial: str, target, script_source: str) -> str:
     def on_message(message, data):
         messages.put({"message": message, "data": data.decode("utf-8", errors="replace") if data else None})
 
+    def on_log(level: str, text: str):
+        # Structured console routing (info/warning/error) instead of opaque message events.
+        messages.put({"message": {"type": "log", "level": str(level or "info"), "payload": text}, "data": None})
+
     script.on("message", on_message)
+    try:
+        script.set_log_handler(on_log)
+    except Exception:
+        pass  # older bindings; logs still arrive as type=log messages if supported
     script.load()
     if spawned_pid is not None:
         device.resume(spawned_pid)

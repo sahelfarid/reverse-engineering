@@ -229,7 +229,10 @@ function setFridaConsole(text, append = false, type = 'info') {
   if (!out) return;
   if (!append) out.innerHTML = '';
   const line = document.createElement('div');
-  const colors = { send: '#35c46a', error: '#e0563d', info: '#d8dee9', message: '#4f8cff' };
+  const colors = {
+    send: '#35c46a', error: '#e0563d', info: '#d8dee9', message: '#4f8cff',
+    log: '#d8dee9', warning: '#e0b341', warn: '#e0b341', debug: '#8b949e',
+  };
   line.style.color = colors[type] || colors.info;
   line.textContent = text;
   out.appendChild(line);
@@ -542,7 +545,11 @@ function startFridaStream(sessionId) {
       setFridaRpcDisabled(true);
       return;
     }
-    if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
+    if (msg.type === 'log') {
+      const level = (msg.level || 'info').toLowerCase();
+      const label = level === 'warning' ? 'warn' : level;
+      setFridaConsole(`${label}: ${msg.payload ?? ''}`, true, label === 'error' ? 'error' : label);
+    } else if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
     else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
     else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
   };
