@@ -211,6 +211,12 @@ function renderFridaScriptView(body, serial) {
         <div><h3>Attach</h3><p class="section-desc">Attach to the process selected on the Target tab, or spawn a fresh package.</p></div>
       </div>
       <div class="toolbar-row">
+        <label class="muted" for="frida-runtime-select" title="JS runtime for create_script">Runtime</label>
+        <select id="frida-runtime-select" title="QJS is default; V8 for broader ES/compat">
+          <option value="">default (QJS)</option>
+          <option value="qjs">qjs</option>
+          <option value="v8">v8</option>
+        </select>
         <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
         <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
         <button id="frida-spawn-btn">Spawn + attach</button>
@@ -438,6 +444,9 @@ async function deleteFridaScript() {
 async function attachFrida(serial, spawn = false) {
   const source = document.getElementById('frida-script-editor').value;
   const body = { script_source: source };
+  const runtimeEl = document.getElementById('frida-runtime-select');
+  const runtime = runtimeEl && runtimeEl.value ? runtimeEl.value : '';
+  if (runtime) body.runtime = runtime;
   if (spawn) {
     const pkg = document.getElementById('frida-spawn-package').value.trim();
     if (!pkg) { toast('Enter a package name to spawn', 'error'); return; }
@@ -455,7 +464,8 @@ async function attachFrida(serial, spawn = false) {
     const el = document.getElementById(id);
     if (el) el.disabled = false;
   });
-  setFridaConsole(`Attached session ${fridaSessionId}`);
+  const runtimeNote = runtime ? ` runtime=${runtime}` : '';
+  setFridaConsole(`Attached session ${fridaSessionId}${runtimeNote}`);
   startFridaStream(fridaSessionId);
 }
 

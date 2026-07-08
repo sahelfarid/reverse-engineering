@@ -576,6 +576,7 @@ def _session_public(session_id: str, entry: dict) -> dict:
         "created_at": entry["created_at"],
         "detached": entry.get("detached", False),
         "detach_reason": entry.get("detach_reason"),
+        "runtime": entry.get("runtime"),
     }
 
 
@@ -614,9 +615,16 @@ def list_sessions() -> list[dict]:
         return [_session_public(sid, entry) for sid, entry in _sessions.items()]
 
 
-def attach(serial: str, target, script_source: str) -> str:
+_VALID_RUNTIMES = frozenset({"qjs", "v8"})
+
+
+def attach(serial: str, target, script_source: str, runtime: str | None = None) -> str:
     if not script_source or len(script_source.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise manager.AdbError("script source is empty or too large")
+    if runtime is not None:
+        runtime = str(runtime).strip().lower() or None
+    if runtime is not None and runtime not in _VALID_RUNTIMES:
+        raise manager.AdbError(f"invalid runtime '{runtime}' (expected qjs or v8)")
     check_version_compatibility(serial)
     device = _frida_device(serial)
     spawned_pid = None
@@ -632,7 +640,16 @@ def attach(serial: str, target, script_source: str) -> str:
         raise manager.AdbError("missing attach target")
 
     session = device.attach(attach_target)
-    script = session.create_script(script_source)
+    create_kwargs = {}
+    if runtime:
+        create_kwargs["runtime"] = runtime
+    try:
+        script = session.create_script(script_source, **create_kwargs)
+    except TypeError:
+        # Older frida bindings without runtime kwarg.
+        if create_kwargs:
+            raise manager.AdbError("this frida build does not support runtime selection") from None
+        script = session.create_script(script_source)
     messages: queue.Queue = queue.Queue()
 
     def on_message(message, data):
@@ -662,6 +679,7 @@ def attach(serial: str, target, script_source: str) -> str:
             "created_at": time.time(),
             "detached": False,
             "detach_reason": None,
+            "runtime": runtime,
         }
     try:
         session.on("detached", _make_detach_handler(session_id, messages))

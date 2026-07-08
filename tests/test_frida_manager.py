@@ -138,6 +138,7 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
     entry = frida_manager._sessions[session_id]
     assert entry["script"].loaded is True
     assert entry["script"].log_handler is not None
+    assert entry.get("runtime") is None
     assert entry["queue"].get_nowait()["message"]["payload"] == "ready"
     log_msg = entry["queue"].get_nowait()["message"]
     assert log_msg == {"type": "log", "level": "info", "payload": "hello from console.log"}
@@ -146,6 +147,66 @@ def test_attach_detach_session_registry_with_mocked_frida(monkeypatch):
     assert session_id not in frida_manager._sessions
     assert fake_device.session.script.unloaded is True
     assert fake_device.session.detached is True
+
+
+def test_attach_passes_runtime_to_create_script(monkeypatch):
+    frida_manager._sessions.clear()
+
+    class FakeScript:
+        def on(self, event, handler):
+            pass
+
+        def set_log_handler(self, handler):
+            pass
+
+        def load(self):
+            pass
+
+        def unload(self):
+            pass
+
+    class FakeSession:
+        def __init__(self):
+            self.create_kwargs = None
+
+        def create_script(self, source, name=None, snapshot=None, runtime=None):
+            self.create_kwargs = {"runtime": runtime}
+            return FakeScript()
+
+        def on(self, event, handler):
+            pass
+
+        def detach(self):
+            pass
+
+    class FakeDevice:
+        id = "serial-1"
+
+        def __init__(self):
+            self.session = FakeSession()
+
+        def attach(self, target):
+            return self.session
+
+    fake_device = FakeDevice()
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_device_manager=lambda: types.SimpleNamespace(enumerate_devices=lambda: [fake_device]),
+        get_usb_device=lambda timeout=5: fake_device,
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager, "check_version_compatibility", lambda serial: None)
+
+    session_id = frida_manager.attach("serial-1", "99", "console.log(1);", runtime="v8")
+    assert fake_device.session.create_kwargs == {"runtime": "v8"}
+    assert frida_manager._sessions[session_id]["runtime"] == "v8"
+    frida_manager.detach(session_id)
+
+
+def test_attach_rejects_invalid_runtime():
+    frida_manager._sessions.clear()
+    with pytest.raises(manager.AdbError, match="invalid runtime"):
+        frida_manager.attach("s1", "1", "console.log(1);", runtime="spidermonkey")
 
 
 def _fake_streaming_response(body: bytes):
@@ -504,12 +565,12 @@ def test_list_sessions_exposes_detach_state():
     frida_manager._sessions.clear()
     frida_manager._sessions["sess1"] = {
         "serial": "s1", "target": "1234", "created_at": 1.0,
-        "detached": True, "detach_reason": "device-lost",
+        "detached": True, "detach_reason": "device-lost", "runtime": "v8",
     }
     sessions = frida_manager.list_sessions()
     assert sessions == [{
         "id": "sess1", "serial": "s1", "target": "1234", "created_at": 1.0,
-        "detached": True, "detach_reason": "device-lost",
+        "detached": True, "detach_reason": "device-lost", "runtime": "v8",
     }]
     frida_manager._sessions.clear()
 

@@ -146,7 +146,8 @@ def attach(serial):
     target = d.get("target")
     if d.get("spawn"):
         target = {"spawn": d.get("spawn")}
-    session_id, err = _wrap(frida_manager.attach, serial, target, source)
+    runtime = d.get("runtime")
+    session_id, err = _wrap(frida_manager.attach, serial, target, source, runtime)
     if err:
         return err
     auth.audit_log("frida_attach", {
@@ -154,6 +155,7 @@ def attach(serial):
         "target": target,
         "script_name": script_name,
         "script_sha256": frida_manager.script_hash(source),
+        "runtime": runtime,
     })
     return jsonify({"ok": True, "session_id": session_id})
 
