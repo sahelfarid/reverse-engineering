@@ -10,6 +10,7 @@ Object.assign(TIP_REGISTRY, {
 let FRIDA_STATUS = null;
 let FRIDA_PROCESSES = [];
 let FRIDA_SELECTED_PID = null;
+let FRIDA_SPAWN_PACKAGE = '';
 let fridaSource = null;
 let fridaSessionId = null;
 
@@ -72,23 +73,52 @@ function renderFridaStatusView(body, serial) {
   refreshFridaStatus(serial);
 }
 
+let FRIDA_TARGET_MODE = 'processes';
+let FRIDA_APPLICATIONS = [];
+
 function renderFridaTargetView(body, serial) {
   body.innerHTML = `
     <section class="panel-section">
       <div class="toolbar-row">
-        <input type="text" id="frida-process-filter" placeholder="Filter process..." style="flex:1; min-width:160px;">
-        <button id="frida-process-refresh-btn">Refresh processes</button>
+        <div class="btn-group" role="tablist">
+          <button id="frida-mode-processes" class="${FRIDA_TARGET_MODE === 'processes' ? 'active' : ''}">Processes</button>
+          <button id="frida-mode-apps" class="${FRIDA_TARGET_MODE === 'apps' ? 'active' : ''}">Applications</button>
+        </div>
+        <input type="text" id="frida-process-filter" placeholder="Filter..." style="flex:1; min-width:160px;">
+        <button id="frida-process-refresh-btn">Refresh</button>
+        <button id="frida-frontmost-btn" title="Select the app currently in the foreground">Frontmost</button>
       </div>
       <div class="table-wrap auto-height">
         <table>
-          <thead><tr><th>PID</th><th>Name</th><th>Action</th></tr></thead>
-          <tbody id="frida-process-body"><tr><td colspan="3">Loading...</td></tr></tbody>
+          <thead id="frida-target-head"></thead>
+          <tbody id="frida-process-body"><tr><td colspan="4">Loading...</td></tr></tbody>
         </table>
       </div>
     </section>`;
-  document.getElementById('frida-process-refresh-btn').addEventListener('click', () => loadFridaProcesses(serial));
-  document.getElementById('frida-process-filter').addEventListener('input', renderFridaProcessTable);
-  loadFridaProcesses(serial);
+  document.getElementById('frida-mode-processes').addEventListener('click', () => setFridaTargetMode(serial, 'processes'));
+  document.getElementById('frida-mode-apps').addEventListener('click', () => setFridaTargetMode(serial, 'apps'));
+  document.getElementById('frida-process-refresh-btn').addEventListener('click', () => reloadFridaTarget(serial));
+  document.getElementById('frida-frontmost-btn').addEventListener('click', () => selectFridaFrontmost(serial));
+  document.getElementById('frida-process-filter').addEventListener('input', renderFridaTargetTable);
+  reloadFridaTarget(serial);
+}
+
+function setFridaTargetMode(serial, mode) {
+  if (FRIDA_TARGET_MODE === mode) return;
+  FRIDA_TARGET_MODE = mode;
+  document.getElementById('frida-mode-processes').classList.toggle('active', mode === 'processes');
+  document.getElementById('frida-mode-apps').classList.toggle('active', mode === 'apps');
+  reloadFridaTarget(serial);
+}
+
+function reloadFridaTarget(serial) {
+  if (FRIDA_TARGET_MODE === 'apps') loadFridaApplications(serial);
+  else loadFridaProcesses(serial);
+}
+
+function renderFridaTargetTable() {
+  if (FRIDA_TARGET_MODE === 'apps') renderFridaAppTable();
+  else renderFridaProcessTable();
 }
 
 function renderFridaScriptView(body, serial) {
@@ -107,7 +137,7 @@ function renderFridaScriptView(body, serial) {
       </div>
       <div class="toolbar-row">
         <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
-        <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" style="flex:1; min-width:200px;">
+        <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
         <button id="frida-spawn-btn">Spawn + attach</button>
       </div>
     </section>`;
@@ -187,6 +217,8 @@ async function loadFridaProcesses(serial) {
 }
 
 function renderFridaProcessTable() {
+  const head = document.getElementById('frida-target-head');
+  if (head) head.innerHTML = `<tr><th>PID</th><th>Name</th><th>Action</th></tr>`;
   const body = document.getElementById('frida-process-body');
   if (!body) return;
   const filter = (document.getElementById('frida-process-filter').value || '').toLowerCase();
@@ -200,13 +232,80 @@ function renderFridaProcessTable() {
     </tr>
   `).join('');
   body.querySelectorAll('button[data-frida-pid]').forEach((btn) => {
+    btn.addEventListener('click', () => selectFridaPid(btn.dataset.fridaPid, btn));
+  });
+}
+
+function selectFridaPid(pid, btn) {
+  document.querySelectorAll('button[data-frida-pid], button[data-frida-app-pid]').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  FRIDA_SELECTED_PID = pid;
+  toast(`Selected PID ${pid} — switch to the Script tab to attach`, 'info', 2500);
+}
+
+async function loadFridaApplications(serial) {
+  const body = document.getElementById('frida-process-body');
+  if (body) body.innerHTML = `<tr><td colspan="4">Loading applications...</td></tr>`;
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/applications`);
+    const data = await res.json();
+    if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
+    FRIDA_APPLICATIONS = data.applications || [];
+    renderFridaAppTable();
+  } catch (err) {
+    if (body) body.innerHTML = `<tr><td colspan="4">${escapeHtml(String(err))}</td></tr>`;
+  }
+}
+
+function renderFridaAppTable() {
+  const head = document.getElementById('frida-target-head');
+  if (head) head.innerHTML = `<tr><th>Identifier</th><th>Name</th><th>State</th><th>Action</th></tr>`;
+  const body = document.getElementById('frida-process-body');
+  if (!body) return;
+  const filter = (document.getElementById('frida-process-filter').value || '').toLowerCase();
+  const rows = FRIDA_APPLICATIONS.filter((a) => !filter
+    || (a.identifier || '').toLowerCase().includes(filter)
+    || (a.name || '').toLowerCase().includes(filter)).slice(0, 500);
+  if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="muted">No matching applications</td></tr>`; return; }
+  body.innerHTML = rows.map((a) => `
+    <tr>
+      <td>${escapeHtml(a.identifier || '-')}</td>
+      <td>${escapeHtml(a.name || '-')}</td>
+      <td>${a.running ? `<span class="badge green">running ${a.pid}</span>` : '<span class="muted">stopped</span>'}</td>
+      <td>${a.running
+        ? `<button data-frida-app-pid="${a.pid}">Attach</button>`
+        : `<button data-frida-spawn="${escapeHtml(a.identifier || '')}">Spawn</button>`}</td>
+    </tr>
+  `).join('');
+  body.querySelectorAll('button[data-frida-app-pid]').forEach((btn) => {
+    btn.addEventListener('click', () => selectFridaPid(btn.dataset.fridaAppPid, btn));
+  });
+  body.querySelectorAll('button[data-frida-spawn]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('button[data-frida-pid]').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      FRIDA_SELECTED_PID = btn.dataset.fridaPid;
-      toast(`Selected PID ${FRIDA_SELECTED_PID} — switch to the Script tab to attach`, 'info', 2500);
+      const pkg = btn.dataset.fridaSpawn;
+      FRIDA_SPAWN_PACKAGE = pkg;
+      toast(`Spawn target set to ${pkg} — switch to the Script tab and press Spawn + attach`, 'info', 3000);
     });
   });
+}
+
+async function selectFridaFrontmost(serial) {
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/frontmost`);
+    const data = await res.json();
+    if (!data.ok) { toast(`Frontmost failed: ${data.error}`, 'error'); return; }
+    const app = data.application;
+    if (!app) { toast('No app is currently in the foreground', 'info'); return; }
+    if (app.running && app.pid) {
+      FRIDA_SELECTED_PID = String(app.pid);
+      toast(`Foreground app ${app.identifier} (PID ${app.pid}) selected — switch to the Script tab`, 'success', 3000);
+    } else {
+      FRIDA_SPAWN_PACKAGE = app.identifier;
+      toast(`Foreground app ${app.identifier} set as spawn target`, 'success', 3000);
+    }
+  } catch (err) {
+    toast(String(err), 'error');
+  }
 }
 
 async function loadFridaScripts() {

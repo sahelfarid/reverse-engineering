@@ -339,6 +339,43 @@ def test_list_processes_falls_back_to_adb_on_frida_failure():
     assert result == [{"pid": 1, "name": "init"}]
 
 
+def test_list_applications_sorts_running_first_then_name():
+    apps = [
+        types.SimpleNamespace(identifier="com.z.bg", name="Zeta", pid=0),
+        types.SimpleNamespace(identifier="com.a.run", name="Alpha", pid=1234),
+        types.SimpleNamespace(identifier="com.b.bg", name="Beta", pid=0),
+    ]
+    fake_device = types.SimpleNamespace(enumerate_applications=lambda: apps)
+    with patch("adb.frida_manager._frida_device", return_value=fake_device):
+        result = frida_manager.list_applications("s1")
+    assert [a["name"] for a in result] == ["Alpha", "Beta", "Zeta"]
+    assert result[0] == {"identifier": "com.a.run", "name": "Alpha", "pid": 1234, "running": True}
+    assert result[1]["running"] is False and result[1]["pid"] is None
+
+
+def test_list_applications_raises_adb_error_on_frida_failure():
+    fake_device = types.SimpleNamespace(
+        enumerate_applications=MagicMock(side_effect=RuntimeError("server not running"))
+    )
+    with patch("adb.frida_manager._frida_device", return_value=fake_device):
+        with pytest.raises(manager.AdbError, match="failed to enumerate applications"):
+            frida_manager.list_applications("s1")
+
+
+def test_get_frontmost_application_returns_public_shape():
+    app = types.SimpleNamespace(identifier="com.a.run", name="Alpha", pid=42)
+    fake_device = types.SimpleNamespace(get_frontmost_application=lambda: app)
+    with patch("adb.frida_manager._frida_device", return_value=fake_device):
+        result = frida_manager.get_frontmost_application("s1")
+    assert result == {"identifier": "com.a.run", "name": "Alpha", "pid": 42, "running": True}
+
+
+def test_get_frontmost_application_returns_none_when_nothing_foreground():
+    fake_device = types.SimpleNamespace(get_frontmost_application=lambda: None)
+    with patch("adb.frida_manager._frida_device", return_value=fake_device):
+        assert frida_manager.get_frontmost_application("s1") is None
+
+
 def test_stream_messages_raises_for_unknown_session():
     with pytest.raises(manager.AdbError, match="session not found"):
         next(frida_manager.stream_messages("does-not-exist"))

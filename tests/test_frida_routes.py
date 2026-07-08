@@ -60,6 +60,29 @@ def test_list_processes_success(auth_client):
     assert res.get_json()["processes"] == [{"pid": 1, "name": "init"}]
 
 
+def test_list_applications_success(auth_client):
+    apps = [{"identifier": "com.a", "name": "Alpha", "pid": 1, "running": True}]
+    with patch("routes.frida.frida_manager.list_applications", return_value=apps):
+        res = auth_client.get("/api/devices/s1/frida/applications")
+    assert res.status_code == 200
+    assert res.get_json()["applications"] == apps
+
+
+def test_list_applications_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.list_applications",
+               side_effect=adb_manager.AdbError("failed to enumerate applications")):
+        res = auth_client.get("/api/devices/s1/frida/applications")
+    assert res.status_code == 400
+
+
+def test_frontmost_application_success(auth_client):
+    app = {"identifier": "com.a", "name": "Alpha", "pid": 1, "running": True}
+    with patch("routes.frida.frida_manager.get_frontmost_application", return_value=app):
+        res = auth_client.get("/api/devices/s1/frida/frontmost")
+    assert res.status_code == 200
+    assert res.get_json()["application"] == app
+
+
 def test_attach_missing_script_source(auth_client):
     res = _post(auth_client, "/api/devices/s1/frida/attach", {"target": "1234"})
     assert res.status_code == 400

@@ -28,6 +28,8 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | POST | `/api/devices/<serial>/frida/server/start` | Start frida-server (pushing first if needed). |
 | POST | `/api/devices/<serial>/frida/server/stop` | Stop frida-server. |
 | GET | `/api/devices/<serial>/frida/processes` | List processes (Frida API, falls back to ADB). |
+| GET | `/api/devices/<serial>/frida/applications` | List installed applications (identifier, name, running/pid). |
+| GET | `/api/devices/<serial>/frida/frontmost` | The application currently in the foreground, or null. |
 | POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. |
 | GET | `/api/frida/sessions` | List active sessions. |
 | GET | `/api/frida/sessions/<session_id>/stream` | SSE stream of a session's messages. |

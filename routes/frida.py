@@ -64,6 +64,20 @@ def list_processes(serial):
     return err or jsonify({"ok": True, "processes": result})
 
 
+@bp.get("/api/devices/<serial>/frida/applications")
+@auth.login_required
+def list_applications(serial):
+    result, err = _wrap(frida_manager.list_applications, serial)
+    return err or jsonify({"ok": True, "applications": result})
+
+
+@bp.get("/api/devices/<serial>/frida/frontmost")
+@auth.login_required
+def frontmost_application(serial):
+    result, err = _wrap(frida_manager.get_frontmost_application, serial)
+    return err or jsonify({"ok": True, "application": result})
+
+
 @bp.post("/api/devices/<serial>/frida/attach")
 @auth.login_required
 @auth.csrf_protect

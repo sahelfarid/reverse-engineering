@@ -339,6 +339,43 @@ def list_processes(serial: str) -> list[dict]:
         return process_manager.list_processes(serial).get("processes", [])
 
 
+def _application_public(app) -> dict:
+    pid = getattr(app, "pid", 0) or 0
+    return {
+        "identifier": getattr(app, "identifier", None),
+        "name": getattr(app, "name", None),
+        "pid": pid or None,
+        "running": bool(pid),
+    }
+
+
+def list_applications(serial: str) -> list[dict]:
+    """List installed applications (not just running processes).
+
+    Requires a live frida-server; unlike list_processes() there is no ADB
+    fallback because the app identifier/running metadata comes from Frida.
+    """
+    device = _frida_device(serial)
+    try:
+        apps = device.enumerate_applications()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to enumerate applications: {exc}") from exc
+    return sorted(
+        (_application_public(app) for app in apps),
+        key=lambda a: (not a["running"], str(a["name"] or a["identifier"] or "").lower()),
+    )
+
+
+def get_frontmost_application(serial: str) -> dict | None:
+    """Return the currently foregrounded application, or None if none is."""
+    device = _frida_device(serial)
+    try:
+        app = device.get_frontmost_application()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to query frontmost application: {exc}") from exc
+    return _application_public(app) if app else None
+
+
 def _session_public(session_id: str, entry: dict) -> dict:
     return {
         "id": session_id,
