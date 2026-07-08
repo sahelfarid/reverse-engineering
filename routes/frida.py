@@ -166,6 +166,13 @@ def sessions():
     return jsonify({"ok": True, "sessions": frida_manager.list_sessions()})
 
 
+@bp.get("/api/frida/sessions/<session_id>")
+@auth.login_required
+def get_session(session_id):
+    result, err = _wrap(frida_manager.get_session, session_id)
+    return err or jsonify({"ok": True, "session": result})
+
+
 @bp.get("/api/frida/sessions/<session_id>/stream")
 @auth.login_required
 def stream(session_id):

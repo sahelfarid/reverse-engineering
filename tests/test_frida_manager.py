@@ -428,6 +428,7 @@ def test_eternalize_session_detaches_without_unload():
     frida_manager._sessions.clear()
     script = MagicMock()
     session = MagicMock()
+    session.is_detached.return_value = False
     frida_manager._sessions["e1"] = {
         "detached": False, "script": script, "session": session,
     }
@@ -593,6 +594,32 @@ def test_list_sessions_exposes_detach_state():
         "id": "sess1", "serial": "s1", "target": "1234", "created_at": 1.0,
         "detached": True, "detach_reason": "device-lost", "runtime": "v8",
     }]
+
+
+def test_get_session_polls_is_detached():
+    frida_manager._sessions.clear()
+    session = MagicMock()
+    session.is_detached.return_value = True
+    frida_manager._sessions["s1"] = {
+        "serial": "dev", "target": "1", "created_at": 2.0,
+        "detached": False, "detach_reason": None, "runtime": None,
+        "session": session,
+    }
+    result = frida_manager.get_session("s1")
+    assert result["detached"] is True
+    assert result["detach_reason"] == "detached"
+    session.is_detached.assert_called()
+
+
+def test_live_session_rejects_when_is_detached_true():
+    frida_manager._sessions.clear()
+    session = MagicMock()
+    session.is_detached.return_value = True
+    frida_manager._sessions["s1"] = {
+        "detached": False, "script": MagicMock(), "session": session,
+    }
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager._live_session("s1")
     frida_manager._sessions.clear()
 
 

@@ -195,6 +195,21 @@ def test_sessions_list_success(auth_client):
     assert res.status_code == 200
 
 
+def test_get_session_success(auth_client):
+    with patch("routes.frida.frida_manager.get_session",
+               return_value={"id": "sess-1", "detached": False}):
+        res = auth_client.get("/api/frida/sessions/sess-1")
+    assert res.status_code == 200
+    assert res.get_json()["session"]["id"] == "sess-1"
+
+
+def test_get_session_maps_not_found(auth_client):
+    with patch("routes.frida.frida_manager.get_session",
+               side_effect=adb_manager.AdbError("session not found")):
+        res = auth_client.get("/api/frida/sessions/missing")
+    assert res.status_code == 400
+
+
 def test_stream_emits_sse_data(auth_client):
     entries = [{"message": {"type": "send", "payload": "hi"}}]
     with patch("routes.frida.frida_manager.stream_messages", return_value=iter(entries)):
@@ -267,6 +282,15 @@ def test_post_message_maps_adb_error(auth_client):
                side_effect=adb_manager.AdbError("session is detached")):
         res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"message": {}})
     assert res.status_code == 400
+
+
+def test_eternalize_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.eternalize_session", return_value={"ok": True, "eternalized": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/eternalize", {})
+    assert res.status_code == 200
+    assert res.get_json()["eternalized"] is True
+    mock_audit.assert_called_once_with("frida_eternalize", {"session_id": "sess-1"})
 
 
 def test_detach_success_and_audit_log(auth_client):

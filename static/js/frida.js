@@ -13,6 +13,7 @@ let FRIDA_SELECTED_PID = null;
 let FRIDA_SPAWN_PACKAGE = '';
 let fridaSource = null;
 let fridaSessionId = null;
+let fridaSessionPollTimer = null;
 
 function selectedFridaDeviceStatus(serial) {
   return FRIDA_STATUS && (FRIDA_STATUS.devices || []).find((d) => d.serial === serial);
@@ -472,16 +473,35 @@ async function attachFrida(serial, spawn = false) {
   const runtimeNote = runtime ? ` runtime=${runtime}` : '';
   setFridaConsole(`Attached session ${fridaSessionId}${runtimeNote}`);
   startFridaStream(fridaSessionId);
+  startFridaSessionPoll(fridaSessionId);
 }
 
 function clearFridaSessionUi() {
   fridaSessionId = null;
   if (fridaSource) { fridaSource.close(); fridaSource = null; }
+  if (fridaSessionPollTimer) { clearInterval(fridaSessionPollTimer); fridaSessionPollTimer = null; }
   ['frida-detach-btn', 'frida-eternalize-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = true;
   });
   setFridaRpcDisabled(true);
+}
+
+function startFridaSessionPoll(sessionId) {
+  if (fridaSessionPollTimer) clearInterval(fridaSessionPollTimer);
+  fridaSessionPollTimer = setInterval(async () => {
+    if (!fridaSessionId || fridaSessionId !== sessionId) return;
+    try {
+      const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(sessionId)}`);
+      const data = await res.json();
+      if (!data.ok) return;
+      const sess = data.session || {};
+      if (sess.detached) {
+        setFridaConsole(`session detached: ${sess.detach_reason || 'unknown reason'} (poll)`, true, 'error');
+        clearFridaSessionUi();
+      }
+    } catch (e) { /* ignore transient poll errors */ }
+  }, 4000);
 }
 
 function setFridaRpcDisabled(disabled) {

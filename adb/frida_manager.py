@@ -568,7 +568,25 @@ def kill_pid(serial: str, pid) -> dict:
     return {"ok": True, "pid": value, "killed": True}
 
 
+def _refresh_detach_state(entry: dict) -> None:
+    """Poll Frida's is_detached() so list/get reflect reality without waiting for the signal."""
+    if entry.get("detached"):
+        return
+    session = entry.get("session")
+    if session is None:
+        return
+    try:
+        live_detached = bool(session.is_detached())
+    except Exception:
+        return
+    if live_detached:
+        entry["detached"] = True
+        if not entry.get("detach_reason"):
+            entry["detach_reason"] = "detached"
+
+
 def _session_public(session_id: str, entry: dict) -> dict:
+    _refresh_detach_state(entry)
     return {
         "id": session_id,
         "serial": entry["serial"],
@@ -578,6 +596,15 @@ def _session_public(session_id: str, entry: dict) -> dict:
         "detach_reason": entry.get("detach_reason"),
         "runtime": entry.get("runtime"),
     }
+
+
+def get_session(session_id: str) -> dict:
+    """Return one session's public state, refreshing is_detached() first."""
+    with _sessions_lock:
+        entry = _sessions.get(session_id)
+        if not entry:
+            raise manager.AdbError("session not found")
+        return _session_public(session_id, entry)
 
 
 def _summarize_crash(crash) -> dict | None:
@@ -748,11 +775,12 @@ def _json_safe(value):
 def _live_session(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.get(session_id)
-    if not entry:
-        raise manager.AdbError("session not found")
-    if entry.get("detached"):
-        raise manager.AdbError("session is detached")
-    return entry
+        if not entry:
+            raise manager.AdbError("session not found")
+        _refresh_detach_state(entry)
+        if entry.get("detached"):
+            raise manager.AdbError("session is detached")
+        return entry
 
 
 def list_script_exports(session_id: str) -> list[str]:

@@ -36,7 +36,8 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | POST | `/api/devices/<serial>/frida/resume/<pid>` | Resume a suspended process. |
 | POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process via the Frida device API. |
 | POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. Optional `runtime` (`qjs`/`v8`). |
-| GET | `/api/frida/sessions` | List active sessions. |
+| GET | `/api/frida/sessions` | List active sessions (refreshes `is_detached()`). |
+| GET | `/api/frida/sessions/<session_id>` | One session's state; polls Frida `is_detached()`. |
 | GET | `/api/frida/sessions/<session_id>/stream` | SSE stream of a session's messages. |
 | GET | `/api/frida/sessions/<session_id>/exports` | List the attached script's `rpc.exports` names. |
 | POST | `/api/frida/sessions/<session_id>/exports/<name>` | Invoke an export with positional JSON `args`. |
@@ -55,6 +56,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - Script names are constrained, default templates are read-only, and script size is capped at 256 KiB. The bundled read-only templates are `template-method-tracer`, `template-ssl-pinning-bypass` (OkHttp/Conscrypt/custom TrustManager/WebView, each hook guarded so unused stacks are skipped), and `template-root-detection-bypass` (File.exists / Runtime.exec / SystemProperties / Build.TAGS / PackageManager / RootBeer). Both bypass agents emit `send()` telemetry per neutralized check and are for authorized testing only.
 - Attach audit logs include target, script name, and source hash rather than full source.
 - Each session registers a `detached` signal handler; when the target quits/crashes/disconnects, the reason (and a crash summary when present) is recorded on the session and pushed into its message stream as a `{"type": "detached"}` event, and `list_sessions()` exposes `detached`/`detach_reason`.
+- Session list/get and live RPC/post paths poll `session.is_detached()` so a missed signal still marks the session detached; the UI also polls `GET /api/frida/sessions/<id>` every few seconds and disables controls when detached.
 - `rpc.exports` on an attached script can be listed and invoked over HTTP. Export names are validated (`^[A-Za-z_][A-Za-z0-9_]*$`), args must be a JSON array, detached sessions are rejected, and `bytes` results are JSON-encoded as `{"__bytes_hex__": ...}`. Export calls are audit-logged by name (never args).
 - Scripts install a structured `set_log_handler` so `console.log` / `warn` / `error` arrive on the message stream as `{"type": "log", "level": ..., "payload": ...}` and the UI colors them by level.
 - Attach accepts optional `runtime` (`qjs` or `v8`) and passes it to `session.create_script(..., runtime=...)`. Invalid values are rejected; the chosen runtime is stored on the session and audit-logged.

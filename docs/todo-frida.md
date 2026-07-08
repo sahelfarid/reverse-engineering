@@ -16,9 +16,9 @@ name/size validation, and audit logging.
 
 Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#13** version-match
 guard, **#25/#27** installed-app enumeration + frontmost shortcut, **#31/#32/#37** spawn
-gating + pending-spawn queue + kill, **#39** detach-reason reporting, **#47/#48** RPC
-exports + two-way `script.post`, **#49–#51** structured logs + QJS/V8 runtime +
-eternalize, **#83/#84** full SSL-pinning and root-detection agents.
+gating + pending-spawn queue + kill, **#39/#42** detach-reason + session state polling,
+**#47/#48** RPC exports + two-way `script.post`, **#49–#51** structured logs + QJS/V8
+runtime + eternalize, **#83/#84** full SSL-pinning and root-detection agents.
 Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 `PortalService`, `FileMonitor`, snapshots, etc.
 
@@ -86,7 +86,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 39 | Detach-reason reporting | Report **why** a session ended (app quit, killed, connection lost). | `session.on('detached', reason)` | ✅ Implemented |
 | 40 | Persistent/reconnecting sessions | Survive brief disconnects and re-attach automatically. | `attach(..., persist_timeout=...)` + reconnect | ⬜ Pending implementation |
 | 41 | Multiple scripts per session | Load several scripts into one session and manage them independently. | Multiple `session.create_script()` | ⬜ Pending implementation |
-| 42 | Session state polling | Reflect `is_detached()` in the UI and disable stale controls. | `session.is_detached()` | ⬜ Pending implementation |
+| 42 | Session state polling | Reflect `is_detached()` in the UI and disable stale controls. | `session.is_detached()` | ✅ Implemented |
 | 43 | Concurrent multi-session UI | Run and switch between several attached sessions with separate consoles. | Registry already keyed by id; needs UI tabs | ⬜ Pending implementation |
 | 44 | Session idle timeout / GC | Auto-detach and clean up abandoned sessions to free device resources. | Background reaper over `_sessions` | ⬜ Pending implementation |
 | 45 | Peer (P2P) connection | Set up a WebRTC peer connection for high-throughput data. | `session.setup_peer_connection()` | ⬜ Pending implementation |
@@ -185,11 +185,11 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | A. Device & Connection Management | 1–12 | 0 | 12 | ⬜ Pending implementation |
 | B. frida-server & Gadget Provisioning | 13–24 | 1 (#13) | 11 | ⬜ Partial |
 | C. Process, Application & Spawn Control | 25–38 | 5 (#25, #27, #31, #32, #37) | 9 | ⬜ Partial |
-| D. Session Lifecycle | 39–46 | 1 (#39) | 7 | ⬜ Partial |
+| D. Session Lifecycle | 39–46 | 2 (#39, #42) | 6 | ⬜ Partial |
 | E. Script Engine & RPC | 47–58 | 5 (#47–#51) | 7 | ⬜ Partial |
 | F. Native Instrumentation Primitives | 59–72 | 0 | 14 | ⬜ Pending implementation |
 | G. Java / Android Runtime Instrumentation | 73–82 | 0 | 10 | ⬜ Pending implementation |
 | H. Ready-Made Bypass & Monitoring Modules | 83–92 | 2 (#83, #84) | 8 | ⬜ Partial |
 | I. Tooling / CLI Parity | 93–96 | 0 | 4 | ⬜ Pending implementation |
 | J. Console, Output & UX | 97–100 | 0 | 4 | ⬜ Pending implementation |
-| **Total** | **100** | **14** | **86** | **14 ✅ / 86 ⬜** |
+| **Total** | **100** | **15** | **85** | **15 ✅ / 85 ⬜** |
