@@ -975,6 +975,37 @@ def eternalize_session(session_id: str) -> dict:
     return {"ok": True, "eternalized": True}
 
 
+def interrupt_script(session_id: str) -> dict:
+    """Interrupt a busy script's current execution (it can continue afterwards)."""
+    entry = _live_session(session_id)
+    try:
+        entry["script"].interrupt()
+    except Exception as exc:
+        raise manager.AdbError(f"interrupt failed: {exc}") from exc
+    return {"ok": True, "interrupted": True}
+
+
+def terminate_script(session_id: str) -> dict:
+    """Force-terminate a runaway script and drop the session.
+
+    Unlike detach() (which unloads cleanly), terminate() is the hard stop for a
+    script that will not yield; afterwards the session is removed and detached.
+    """
+    entry = _live_session(session_id)
+    try:
+        entry["script"].terminate()
+    except Exception as exc:
+        raise manager.AdbError(f"terminate failed: {exc}") from exc
+    with _sessions_lock:
+        entry = _sessions.pop(session_id, None)
+    if entry:
+        try:
+            entry["session"].detach()
+        except Exception:
+            pass
+    return {"ok": True, "terminated": True}
+
+
 def detach(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.pop(session_id, None)

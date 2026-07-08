@@ -279,6 +279,28 @@ def eternalize(session_id):
     return jsonify(result)
 
 
+@bp.post("/api/frida/sessions/<session_id>/interrupt")
+@auth.login_required
+@auth.csrf_protect
+def interrupt(session_id):
+    result, err = _wrap(frida_manager.interrupt_script, session_id)
+    if err:
+        return err
+    auth.audit_log("frida_interrupt", {"session_id": session_id})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/sessions/<session_id>/terminate")
+@auth.login_required
+@auth.csrf_protect
+def terminate(session_id):
+    result, err = _wrap(frida_manager.terminate_script, session_id)
+    if err:
+        return err
+    auth.audit_log("frida_terminate", {"session_id": session_id})
+    return jsonify(result)
+
+
 @bp.post("/api/frida/sessions/<session_id>/detach")
 @auth.login_required
 @auth.csrf_protect

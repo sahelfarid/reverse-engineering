@@ -41,6 +41,8 @@ function renderFridaTab() {
       <section class="panel-section subnav-pinned">
         <div class="section-head">
           <div><h3>Live console</h3></div>
+          <button id="frida-interrupt-btn" disabled title="Interrupt the script's current execution (it can continue)">Interrupt</button>
+          <button id="frida-terminate-btn" disabled title="Force-terminate a runaway script and drop the session">Terminate</button>
           <button id="frida-eternalize-btn" disabled title="Leave the script running after disconnect (fire-and-forget)">Eternalize</button>
           <button id="frida-detach-btn" disabled>Detach</button>
         </div>
@@ -70,6 +72,8 @@ function renderFridaTab() {
   document.getElementById('frida-post-btn').addEventListener('click', postFridaMessage);
   document.getElementById('frida-childgate-on-btn').addEventListener('click', () => setFridaChildGating(true));
   document.getElementById('frida-childgate-off-btn').addEventListener('click', () => setFridaChildGating(false));
+  document.getElementById('frida-interrupt-btn').addEventListener('click', interruptFridaScript);
+  document.getElementById('frida-terminate-btn').addEventListener('click', terminateFridaScript);
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
@@ -561,7 +565,8 @@ async function attachFrida(serial, spawn = false) {
   const data = await res.json();
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
   fridaSessionId = data.session_id;
-  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn'].forEach((id) => {
+  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn',
+   'frida-interrupt-btn', 'frida-terminate-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = false;
   });
@@ -582,11 +587,38 @@ function clearFridaSessionUi() {
   fridaSessionId = null;
   if (fridaSource) { fridaSource.close(); fridaSource = null; }
   if (fridaSessionPollTimer) { clearInterval(fridaSessionPollTimer); fridaSessionPollTimer = null; }
-  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn'].forEach((id) => {
+  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn',
+   'frida-interrupt-btn', 'frida-terminate-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = true;
   });
   setFridaRpcDisabled(true);
+}
+
+async function interruptFridaScript() {
+  if (!fridaSessionId) return;
+  try {
+    const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/interrupt`, { method: 'POST' });
+    const data = await res.json();
+    setFridaConsole(data.ok ? 'script interrupted' : `interrupt failed: ${data.error}`, true, data.ok ? 'info' : 'error');
+  } catch (err) {
+    setFridaConsole(`interrupt error: ${String(err)}`, true, 'error');
+  }
+}
+
+async function terminateFridaScript() {
+  if (!fridaSessionId) return;
+  if (!confirm('Force-terminate this script and drop the session?')) return;
+  const id = fridaSessionId;
+  try {
+    const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(id)}/terminate`, { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) { setFridaConsole(`terminate failed: ${data.error}`, true, 'error'); return; }
+    setFridaConsole('script terminated; session dropped', true, 'error');
+    clearFridaSessionUi();
+  } catch (err) {
+    setFridaConsole(`terminate error: ${String(err)}`, true, 'error');
+  }
 }
 
 async function setFridaChildGating(enable) {

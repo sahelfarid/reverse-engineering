@@ -386,6 +386,35 @@ def test_eternalize_success_and_audit_log(auth_client):
     mock_audit.assert_called_once_with("frida_eternalize", {"session_id": "sess-1"})
 
 
+def test_interrupt_script_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.interrupt_script", return_value={"ok": True, "interrupted": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/interrupt")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_interrupt", {"session_id": "sess-1"})
+
+
+def test_terminate_script_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.terminate_script", return_value={"ok": True, "terminated": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/terminate")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_terminate", {"session_id": "sess-1"})
+
+
+def test_terminate_script_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.terminate_script",
+               side_effect=adb_manager.AdbError("session is detached")):
+        res = _post(auth_client, "/api/frida/sessions/sess-1/terminate")
+    assert res.status_code == 400
+
+
+def test_interrupt_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    res = client.post("/api/frida/sessions/sess-1/interrupt")
+    assert res.status_code == 403
+
+
 def test_detach_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.detach", return_value={"ok": True, "detached": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:

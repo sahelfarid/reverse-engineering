@@ -107,7 +107,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 54 | Precompiled bytecode | Load agents from compiled bytes for speed/obfuscation. | `session.compile_script()` / `create_script_from_bytes()` | ⬜ Pending implementation |
 | 55 | Snapshot warmup | Use a heap snapshot to cut agent startup latency. | `session.snapshot_script()`, `create_script(..., snapshot=)` | ⬜ Pending implementation |
 | 56 | Script debugger (Inspector) | Attach Chrome DevTools / V8 Inspector to a script. | `script.enable_debugger(port)` | ⬜ Pending implementation |
-| 57 | Script interrupt/terminate | Interrupt a busy script or force-terminate a runaway one. | `script.interrupt()`, `script.terminate()` | ⬜ Pending implementation |
+| 57 | Script interrupt/terminate | Interrupt a busy script or force-terminate a runaway one. | `script.interrupt()`, `script.terminate()` | ✅ Implemented |
 | 58 | Parametrized scripts | Inject named parameters (class, method, address) into templates at load. | Prepend a `const PARAMS = {...}` prelude | ✅ Implemented |
 
 ## F. Native Instrumentation Primitives (surfaced as UI/agent features)

@@ -579,6 +579,41 @@ def test_call_script_export_unknown_export():
     frida_manager._sessions.clear()
 
 
+def test_interrupt_script_calls_script_interrupt():
+    frida_manager._sessions.clear()
+    script = MagicMock()
+    session = MagicMock()
+    session.is_detached.return_value = False
+    frida_manager._sessions["s"] = {"detached": False, "script": script, "session": session}
+    assert frida_manager.interrupt_script("s") == {"ok": True, "interrupted": True}
+    script.interrupt.assert_called_once_with()
+    assert "s" in frida_manager._sessions  # interrupt keeps the session alive
+    frida_manager._sessions.clear()
+
+
+def test_terminate_script_terminates_and_drops_session():
+    frida_manager._sessions.clear()
+    script = MagicMock()
+    session = MagicMock()
+    session.is_detached.return_value = False
+    frida_manager._sessions["s"] = {"detached": False, "script": script, "session": session}
+    assert frida_manager.terminate_script("s") == {"ok": True, "terminated": True}
+    script.terminate.assert_called_once_with()
+    session.detach.assert_called_once_with()
+    assert "s" not in frida_manager._sessions
+    frida_manager._sessions.clear()
+
+
+def test_interrupt_script_rejects_detached_and_unknown():
+    frida_manager._sessions.clear()
+    with pytest.raises(manager.AdbError, match="session not found"):
+        frida_manager.interrupt_script("gone")
+    frida_manager._sessions["s"] = {"detached": True, "script": MagicMock(), "session": MagicMock()}
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager.terminate_script("s")
+    frida_manager._sessions.clear()
+
+
 def test_post_message_forwards_to_script():
     frida_manager._sessions.clear()
     script = MagicMock()

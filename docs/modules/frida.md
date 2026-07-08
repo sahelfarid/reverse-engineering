@@ -48,6 +48,8 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | POST | `/api/frida/sessions/<session_id>/exports/<name>` | Invoke an export with positional JSON `args`. |
 | POST | `/api/frida/sessions/<session_id>/post` | Send a `message` (+ optional hex `data`) into the script's `recv()`. |
 | POST | `/api/frida/sessions/<session_id>/eternalize` | Eternalize the script (keeps running after client disconnect) then drop the session. |
+| POST | `/api/frida/sessions/<session_id>/interrupt` | Interrupt the script's current execution (session stays alive). |
+| POST | `/api/frida/sessions/<session_id>/terminate` | Force-terminate a runaway script and drop the session. |
 | POST | `/api/frida/sessions/<session_id>/detach` | Detach a session. |
 | GET | `/api/frida/scripts` | List stored scripts. |
 | POST | `/api/frida/scripts` | Save a script. |
