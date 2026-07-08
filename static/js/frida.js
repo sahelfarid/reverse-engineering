@@ -40,6 +40,7 @@ function renderFridaTab() {
       <section class="panel-section subnav-pinned">
         <div class="section-head">
           <div><h3>Live console</h3></div>
+          <button id="frida-eternalize-btn" disabled title="Leave the script running after disconnect (fire-and-forget)">Eternalize</button>
           <button id="frida-detach-btn" disabled>Detach</button>
         </div>
         <pre id="frida-console" class="shell-output"></pre>
@@ -58,6 +59,7 @@ function renderFridaTab() {
     </div>
   `;
   document.getElementById('frida-detach-btn').addEventListener('click', detachFrida);
+  document.getElementById('frida-eternalize-btn').addEventListener('click', eternalizeFrida);
   document.getElementById('frida-rpc-refresh-btn').addEventListener('click', loadFridaExports);
   document.getElementById('frida-rpc-call-btn').addEventListener('click', callFridaExport);
   document.getElementById('frida-post-btn').addEventListener('click', postFridaMessage);
@@ -459,7 +461,10 @@ async function attachFrida(serial, spawn = false) {
   const data = await res.json();
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
   fridaSessionId = data.session_id;
-  document.getElementById('frida-detach-btn').disabled = false;
+  ['frida-detach-btn', 'frida-eternalize-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
   ['frida-rpc-refresh-btn', 'frida-post-input', 'frida-post-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = false;
@@ -467,6 +472,16 @@ async function attachFrida(serial, spawn = false) {
   const runtimeNote = runtime ? ` runtime=${runtime}` : '';
   setFridaConsole(`Attached session ${fridaSessionId}${runtimeNote}`);
   startFridaStream(fridaSessionId);
+}
+
+function clearFridaSessionUi() {
+  fridaSessionId = null;
+  if (fridaSource) { fridaSource.close(); fridaSource = null; }
+  ['frida-detach-btn', 'frida-eternalize-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
+  setFridaRpcDisabled(true);
 }
 
 function setFridaRpcDisabled(disabled) {
@@ -548,11 +563,7 @@ function startFridaStream(sessionId) {
     if (msg.type === 'detached') {
       const crash = msg.crash ? ` (crash: ${escapeHtml(msg.crash.summary || msg.crash.process_name || '')})` : '';
       setFridaConsole(`session detached: ${msg.reason || 'unknown reason'}${crash}`, true, 'error');
-      if (fridaSource) { fridaSource.close(); fridaSource = null; }
-      fridaSessionId = null;
-      const btn = document.getElementById('frida-detach-btn');
-      if (btn) btn.disabled = true;
-      setFridaRpcDisabled(true);
+      clearFridaSessionUi();
       return;
     }
     if (msg.type === 'log') {
@@ -565,13 +576,22 @@ function startFridaStream(sessionId) {
   };
 }
 
+async function eternalizeFrida() {
+  if (!fridaSessionId) return;
+  if (!confirm('Eternalize this script? It will keep running after you disconnect.')) return;
+  const id = fridaSessionId;
+  const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(id)}/eternalize`, { method: 'POST' });
+  const data = await res.json();
+  if (!data.ok) { toast(`Eternalize failed: ${data.error}`, 'error'); return; }
+  clearFridaSessionUi();
+  setFridaConsole(`Session ${id} eternalized — script remains on target`, true, 'info');
+  toast('Script eternalized', 'success');
+}
+
 async function detachFrida() {
   if (!fridaSessionId) return;
   const id = fridaSessionId;
-  if (fridaSource) { fridaSource.close(); fridaSource = null; }
-  fridaSessionId = null;
-  document.getElementById('frida-detach-btn').disabled = true;
-  setFridaRpcDisabled(true);
+  clearFridaSessionUi();
   const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(id)}/detach`, { method: 'POST' });
   const data = await res.json();
   toast(data.ok ? 'Detached' : `Detach failed: ${data.error}`, data.ok ? 'success' : 'error');

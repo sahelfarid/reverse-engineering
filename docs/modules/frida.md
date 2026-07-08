@@ -41,6 +41,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | GET | `/api/frida/sessions/<session_id>/exports` | List the attached script's `rpc.exports` names. |
 | POST | `/api/frida/sessions/<session_id>/exports/<name>` | Invoke an export with positional JSON `args`. |
 | POST | `/api/frida/sessions/<session_id>/post` | Send a `message` (+ optional hex `data`) into the script's `recv()`. |
+| POST | `/api/frida/sessions/<session_id>/eternalize` | Eternalize the script (keeps running after client disconnect) then drop the session. |
 | POST | `/api/frida/sessions/<session_id>/detach` | Detach a session. |
 | GET | `/api/frida/scripts` | List stored scripts. |
 | POST | `/api/frida/scripts` | Save a script. |
@@ -57,6 +58,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - `rpc.exports` on an attached script can be listed and invoked over HTTP. Export names are validated (`^[A-Za-z_][A-Za-z0-9_]*$`), args must be a JSON array, detached sessions are rejected, and `bytes` results are JSON-encoded as `{"__bytes_hex__": ...}`. Export calls are audit-logged by name (never args).
 - Scripts install a structured `set_log_handler` so `console.log` / `warn` / `error` arrive on the message stream as `{"type": "log", "level": ..., "payload": ...}` and the UI colors them by level.
 - Attach accepts optional `runtime` (`qjs` or `v8`) and passes it to `session.create_script(..., runtime=...)`. Invalid values are rejected; the chosen runtime is stored on the session and audit-logged.
+- `eternalize_session()` calls `script.eternalize()` then detaches without `unload()`, so the agent keeps running on the target after the UI disconnects.
 - The session registry and message queues are process-local.
 
 ## Known Limitations

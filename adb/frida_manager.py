@@ -810,6 +810,27 @@ def post_message(session_id: str, message, data: str | None = None) -> dict:
     return {"ok": True}
 
 
+def eternalize_session(session_id: str) -> dict:
+    """Keep the agent running after this client disconnects (fire-and-forget).
+
+    Calls script.eternalize(), then detaches the client session without unloading
+    the script so hooks remain active on the target.
+    """
+    entry = _live_session(session_id)
+    try:
+        entry["script"].eternalize()
+    except Exception as exc:
+        raise manager.AdbError(f"eternalize failed: {exc}") from exc
+    with _sessions_lock:
+        entry = _sessions.pop(session_id, None)
+    if entry:
+        try:
+            entry["session"].detach()
+        except Exception:
+            pass
+    return {"ok": True, "eternalized": True}
+
+
 def detach(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.pop(session_id, None)

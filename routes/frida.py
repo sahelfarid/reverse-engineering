@@ -214,6 +214,17 @@ def post_message(session_id):
     return jsonify(result)
 
 
+@bp.post("/api/frida/sessions/<session_id>/eternalize")
+@auth.login_required
+@auth.csrf_protect
+def eternalize(session_id):
+    result, err = _wrap(frida_manager.eternalize_session, session_id)
+    if err:
+        return err
+    auth.audit_log("frida_eternalize", {"session_id": session_id})
+    return jsonify(result)
+
+
 @bp.post("/api/frida/sessions/<session_id>/detach")
 @auth.login_required
 @auth.csrf_protect

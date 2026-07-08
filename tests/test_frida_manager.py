@@ -424,6 +424,27 @@ def test_list_processes_falls_back_to_adb_on_frida_failure():
     assert result == [{"pid": 1, "name": "init"}]
 
 
+def test_eternalize_session_detaches_without_unload():
+    frida_manager._sessions.clear()
+    script = MagicMock()
+    session = MagicMock()
+    frida_manager._sessions["e1"] = {
+        "detached": False, "script": script, "session": session,
+    }
+    assert frida_manager.eternalize_session("e1") == {"ok": True, "eternalized": True}
+    script.eternalize.assert_called_once_with()
+    script.unload.assert_not_called()
+    session.detach.assert_called_once_with()
+    assert "e1" not in frida_manager._sessions
+
+
+def test_eternalize_rejects_detached_session():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["e1"] = {"detached": True, "script": MagicMock()}
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager.eternalize_session("e1")
+
+
 def test_list_script_exports_returns_sorted_names():
     frida_manager._sessions.clear()
     script = types.SimpleNamespace(list_exports=lambda: ["zzz", "aaa"])
