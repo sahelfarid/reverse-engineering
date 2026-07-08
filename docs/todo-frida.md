@@ -150,8 +150,8 @@ Still not wired: remote devices, `Compiler`, `PackageManager`, `PortalService`,
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 83 | Full SSL-pinning bypass | Multi-framework unpinning (OkHttp, TrustManagerImpl, Conscrypt, WebView, Flutter, Cronet) — replace the current stub template. | Bundled maintained agent | ✅ Implemented (OkHttp/Conscrypt/TrustManager/WebView) |
-| 84 | Full root-detection bypass | Broad root-check neutralizer (files, props, packages, `su`, SafetyNet/Play Integrity signals). | Bundled maintained agent | ✅ Implemented (files/exec/props/packages/RootBeer) |
+| 83 | Full SSL-pinning bypass | Multi-framework unpinning (OkHttp, TrustManagerImpl, Conscrypt, WebView; Flutter/Cronet still open). | Bundled maintained agent | ✅ Implemented (OkHttp/Conscrypt/TrustManager/WebView) · UX: template + scope note in Script tab |
+| 84 | Full root-detection bypass | Broad root-check neutralizer (files, props, packages, RootBeer; SafetyNet/Play Integrity still open). | Bundled maintained agent | ✅ Implemented (files/exec/props/packages/RootBeer) · UX: template + scope note in Script tab |
 | 85 | Anti-debug / anti-Frida bypass | Defeat common Frida/ptrace/port-scan/`/proc/maps` detections. | Hook detection routines | ⬜ Pending implementation |
 | 86 | Crypto monitor | Log `Cipher`/`Mac`/`MessageDigest`/`KeyStore` inputs/outputs/keys. | Hook `javax.crypto.*` | ⬜ Pending implementation |
 | 87 | Network/socket monitor | Trace socket connects, `OkHttp`/`HttpURLConnection` requests + bodies. | Hook net stack classes | ⬜ Pending implementation |

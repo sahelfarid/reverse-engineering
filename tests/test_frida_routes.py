@@ -199,6 +199,22 @@ def test_kill_pid_maps_adb_error(auth_client):
     assert res.status_code == 400
 
 
+def test_kill_by_name_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.kill_process",
+               return_value={"ok": True, "name": "com.example", "killed": True}) as mock_kill, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/kill", {"target": "com.example"})
+    assert res.status_code == 200
+    mock_kill.assert_called_once_with("s1", "com.example")
+    mock_audit.assert_called_once_with("frida_kill", {"serial": "s1", "target": "com.example"})
+
+
+def test_kill_by_name_missing_target(auth_client):
+    res = _post(auth_client, "/api/devices/s1/frida/kill", {})
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "missing_target"
+
+
 def test_spawn_gating_requires_csrf(client):
     client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
     res = client.post("/api/devices/s1/frida/spawn-gating/enable")
@@ -361,13 +377,22 @@ def test_post_message_success_and_audit_log(auth_client):
         res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"message": {"cmd": "ping"}})
     assert res.status_code == 200
     mock_post.assert_called_once_with("sess-1", {"cmd": "ping"}, None)
-    mock_audit.assert_called_once_with("frida_post_message", {"session_id": "sess-1"})
+    mock_audit.assert_called_once_with("frida_post_message", {"session_id": "sess-1", "has_data": False})
 
 
-def test_post_message_missing_message_field(auth_client):
-    res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"data": "00"})
+def test_post_message_allows_data_only(auth_client):
+    with patch("routes.frida.frida_manager.post_message", return_value={"ok": True}) as mock_post, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"data": "deadbeef"})
+    assert res.status_code == 200
+    mock_post.assert_called_once_with("sess-1", None, "deadbeef")
+    assert mock_audit.call_args[0][1]["has_data"] is True
+
+
+def test_post_message_missing_message_and_data(auth_client):
+    res = _post(auth_client, "/api/frida/sessions/sess-1/post", {})
     assert res.status_code == 400
-    assert res.get_json()["error"] == "missing_message"
+    assert res.get_json()["error"] == "missing_message_or_data"
 
 
 def test_post_message_maps_adb_error(auth_client):

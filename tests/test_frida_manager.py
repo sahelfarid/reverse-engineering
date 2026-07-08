@@ -680,7 +680,24 @@ def test_detach_handler_summarizes_crash_when_provided():
     msg = q.get_nowait()["message"]
     assert msg["type"] == "detached"
     assert msg["reason"] == "process-terminated"
-    assert msg["crash"] == {"pid": 99, "process_name": "com.example", "summary": "SIGSEGV"}
+    assert msg["crash"] == {
+        "pid": 99, "process_name": "com.example", "summary": "SIGSEGV", "report": None,
+    }
+    frida_manager._sessions.clear()
+
+
+def test_detach_handler_includes_crash_report_when_present():
+    import queue as queue_module
+
+    frida_manager._sessions.clear()
+    q = queue_module.Queue()
+    frida_manager._sessions["sess1"] = {"detached": False, "detach_reason": None, "queue": q}
+    handler = frida_manager._make_detach_handler("sess1", q)
+    crash = types.SimpleNamespace(
+        pid=1, process_name="app", summary="boom", report="*** *** ***\nbacktrace",
+    )
+    handler("process-terminated", crash)
+    assert q.get_nowait()["message"]["crash"]["report"] == "*** *** ***\nbacktrace"
     frida_manager._sessions.clear()
 
 
@@ -837,6 +854,21 @@ def test_kill_pid_calls_device_kill():
     with patch("adb.frida_manager._frida_device", return_value=device):
         assert frida_manager.kill_pid("s1", 55) == {"ok": True, "pid": 55, "killed": True}
     device.kill.assert_called_once_with(55)
+
+
+def test_kill_process_by_name():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        assert frida_manager.kill_process("s1", "com.example") == {
+            "ok": True, "name": "com.example", "killed": True,
+        }
+    device.kill.assert_called_once_with("com.example")
+
+
+def test_kill_process_missing_target():
+    with patch("adb.frida_manager._frida_device", return_value=MagicMock()):
+        with pytest.raises(manager.AdbError, match="missing kill target"):
+            frida_manager.kill_process("s1", "  ")
 
 
 def test_resume_pid_rejects_invalid_pid():

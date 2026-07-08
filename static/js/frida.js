@@ -11,9 +11,18 @@ let FRIDA_STATUS = null;
 let FRIDA_PROCESSES = [];
 let FRIDA_SELECTED_PID = null;
 let FRIDA_SPAWN_PACKAGE = '';
+let FRIDA_TARGET_MODE = 'processes';
+let FRIDA_APPLICATIONS = [];
+let FRIDA_SESSIONS = [];
+let FRIDA_EVENT_LOG = []; // client-side ring of device events for the Events panel
+let FRIDA_BINARIES = []; // { id, hex, label, ts } binary side-channel payloads
 let fridaSource = null;
 let fridaSessionId = null;
 let fridaSessionPollTimer = null;
+let fridaDeviceEventTimer = null;
+let fridaDeviceEventAfter = 0;
+let fridaDeviceEventSerial = null;
+let fridaBinarySeq = 0;
 
 function selectedFridaDeviceStatus(serial) {
   return FRIDA_STATUS && (FRIDA_STATUS.devices || []).find((d) => d.serial === serial);
@@ -41,14 +50,20 @@ function renderFridaTab() {
       <section class="panel-section subnav-pinned">
         <div class="section-head">
           <div><h3>Live console</h3></div>
+          <label class="muted" for="frida-session-select" title="Switch among concurrent sessions">Session</label>
+          <select id="frida-session-select" title="Active session" style="min-width:160px;"></select>
+          <button id="frida-sessions-refresh-btn" title="Refresh session list">Sessions</button>
           <button id="frida-export-txt-btn" title="Download console log as text">Export .txt</button>
           <button id="frida-export-json-btn" title="Download console log as JSON">Export .json</button>
+          <button id="frida-export-bin-btn" title="Download binary data payloads from this session">Export binaries</button>
           <button id="frida-interrupt-btn" disabled title="Interrupt the script's current execution (it can continue)">Interrupt</button>
           <button id="frida-terminate-btn" disabled title="Force-terminate a runaway script and drop the session">Terminate</button>
           <button id="frida-eternalize-btn" disabled title="Leave the script running after disconnect (fire-and-forget)">Eternalize</button>
           <button id="frida-detach-btn" disabled>Detach</button>
         </div>
+        <div id="frida-session-meta" class="muted" style="margin:4px 0 6px;"></div>
         <pre id="frida-console" class="shell-output"></pre>
+        <div id="frida-binary-list" class="muted" style="margin-top:6px; font-size:0.9em;"></div>
         <div class="toolbar-row" style="margin-top:8px;">
           <button id="frida-rpc-refresh-btn" disabled title="List the attached script's rpc.exports">Load exports</button>
           <select id="frida-rpc-select" disabled></select>
@@ -56,7 +71,8 @@ function renderFridaTab() {
           <button id="frida-rpc-call-btn" disabled>Call</button>
         </div>
         <div class="toolbar-row" style="margin-top:6px;">
-          <input type="text" id="frida-post-input" placeholder='send to script (JSON or text), delivered to recv()' disabled style="flex:1; min-width:200px;">
+          <input type="text" id="frida-post-input" placeholder='message to script (JSON or text) → recv()' disabled style="flex:1; min-width:160px;">
+          <input type="text" id="frida-post-data" placeholder="optional binary data (hex)" disabled style="flex:1; min-width:140px;" title="Hex side-channel delivered as the binary data of script.post()">
           <button id="frida-post-btn" disabled>Send</button>
         </div>
         <div class="toolbar-row" style="margin-top:6px;">
@@ -78,12 +94,18 @@ function renderFridaTab() {
   document.getElementById('frida-terminate-btn').addEventListener('click', terminateFridaScript);
   document.getElementById('frida-export-txt-btn').addEventListener('click', () => exportFridaConsole('text'));
   document.getElementById('frida-export-json-btn').addEventListener('click', () => exportFridaConsole('json'));
+  document.getElementById('frida-export-bin-btn').addEventListener('click', exportFridaBinaries);
+  document.getElementById('frida-sessions-refresh-btn').addEventListener('click', () => refreshFridaSessionsList(true));
+  document.getElementById('frida-session-select').addEventListener('change', onFridaSessionSelect);
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
     { key: 'script', label: 'Script', render: (body) => renderFridaScriptView(body, serial) },
   ]);
   startFridaDeviceEventPoll(serial);
+  refreshFridaSessionsList(false);
+  if (fridaSessionId) enableFridaSessionControls(true);
+  renderFridaBinaryList();
 }
 
 function renderFridaStatusView(body, serial) {
@@ -97,7 +119,7 @@ function renderFridaStatusView(body, serial) {
         <button id="frida-stop-btn">Stop server</button>
         <button id="frida-sysinfo-btn" title="Device details Frida reports (os, arch, access)">Device info</button>
       </div>
-      <pre id="frida-sysinfo" class="shell-output" style="display:none; margin-top:10px; max-height:220px;"></pre>
+      <div id="frida-sysinfo" style="display:none; margin-top:10px;"></div>
     </section>`;
   document.getElementById('frida-refresh-btn').addEventListener('click', () => refreshFridaStatus(serial));
   document.getElementById('frida-push-btn').addEventListener('click', () => fridaServerAction(serial, 'push'));
@@ -107,22 +129,48 @@ function renderFridaStatusView(body, serial) {
   refreshFridaStatus(serial);
 }
 
+function renderKeyValueTable(obj, preferKeys) {
+  if (!obj || typeof obj !== 'object') return '<p class="muted">No data</p>';
+  const rows = [];
+  const seen = new Set();
+  const add = (k, v) => {
+    seen.add(k);
+    let display;
+    if (v === null || v === undefined) display = '—';
+    else if (typeof v === 'object') display = `<pre class="shell-output" style="margin:0; max-height:120px;">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`;
+    else display = escapeHtml(String(v));
+    rows.push(`<tr><th style="text-align:left; white-space:nowrap; padding-right:12px;">${escapeHtml(k)}</th><td>${display}</td></tr>`);
+  };
+  (preferKeys || []).forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) add(k, obj[k]);
+  });
+  Object.keys(obj).sort().forEach((k) => {
+    if (!seen.has(k)) add(k, obj[k]);
+  });
+  return `<div class="table-wrap auto-height"><table class="kv-table"><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
 async function loadFridaSystemInfo(serial) {
   const out = document.getElementById('frida-sysinfo');
   if (!out) return;
   out.style.display = 'block';
-  out.textContent = 'Querying device...';
+  out.innerHTML = '<p class="muted">Querying device...</p>';
   try {
     const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/system`);
     const data = await res.json();
-    out.textContent = data.ok ? JSON.stringify(data.system, null, 2) : `Error: ${data.error}`;
+    if (!data.ok) { out.innerHTML = `<p class="muted">Error: ${escapeHtml(data.error || 'failed')}</p>`; return; }
+    const sys = data.system || {};
+    const prefer = ['arch', 'os', 'platform', 'access', 'name', 'api-level', 'api_level', 'version'];
+    out.innerHTML = `
+      <div class="section-head"><div><h3>System parameters</h3><p class="section-desc">From <code>device.query_system_parameters()</code></p></div></div>
+      ${renderKeyValueTable(sys, prefer)}
+      <details style="margin-top:8px;"><summary class="muted">Raw JSON</summary>
+        <pre class="shell-output" style="max-height:200px;">${escapeHtml(JSON.stringify(sys, null, 2))}</pre>
+      </details>`;
   } catch (err) {
-    out.textContent = String(err);
+    out.innerHTML = `<p class="muted">${escapeHtml(String(err))}</p>`;
   }
 }
-
-let FRIDA_TARGET_MODE = 'processes';
-let FRIDA_APPLICATIONS = [];
 
 function renderFridaTargetView(body, serial) {
   body.innerHTML = `
@@ -136,13 +184,17 @@ function renderFridaTargetView(body, serial) {
         <button id="frida-process-refresh-btn">Refresh</button>
         <button id="frida-frontmost-btn" title="Select the app currently in the foreground">Frontmost</button>
       </div>
+      <div class="toolbar-row" style="margin-top:6px;">
+        <input type="text" id="frida-kill-target" placeholder="Kill by PID or process name" style="flex:1; min-width:180px;" title="device.kill(pid|name)">
+        <button id="frida-kill-btn" title="Kill process by PID or name">Kill</button>
+      </div>
       <div class="table-wrap auto-height">
         <table>
           <thead id="frida-target-head"></thead>
           <tbody id="frida-process-body"><tr><td colspan="4">Loading...</td></tr></tbody>
         </table>
       </div>
-      <pre id="frida-target-detail" class="shell-output" style="display:none; margin-top:10px; max-height:220px;"></pre>
+      <div id="frida-target-detail" style="display:none; margin-top:10px;"></div>
       <div class="section-head" style="margin-top:14px;">
         <div><h3>Spawn gating</h3><p class="section-desc">Suspend every newly launched process so you can attach before it runs.</p></div>
       </div>
@@ -158,7 +210,7 @@ function renderFridaTargetView(body, serial) {
         </table>
       </div>
       <div class="section-head" style="margin-top:14px;">
-        <div><h3>Pending children</h3><p class="section-desc">Children suspended by child gating (enable it from the Live console after attaching). Live spawn/child/crash events auto-refresh these tables.</p></div>
+        <div><h3>Pending children</h3><p class="section-desc">Children suspended by child gating (enable from Live console after attaching).</p></div>
         <button id="frida-pending-children-refresh-btn">Refresh children</button>
       </div>
       <div class="table-wrap auto-height">
@@ -167,6 +219,17 @@ function renderFridaTargetView(body, serial) {
           <tbody id="frida-pending-children-body"><tr><td colspan="4" class="muted">No pending children.</td></tr></tbody>
         </table>
       </div>
+      <div class="section-head" style="margin-top:14px;">
+        <div><h3>Device event stream</h3><p class="section-desc">Live <code>spawn-*</code>, <code>child-*</code>, <code>process-crashed</code>, and <code>output</code> signals.</p></div>
+        <button id="frida-events-clear-btn">Clear</button>
+      </div>
+      <div class="table-wrap auto-height">
+        <table>
+          <thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead>
+          <tbody id="frida-events-body"><tr><td colspan="3" class="muted">Waiting for events…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="frida-crash-detail" style="display:none; margin-top:10px;"></div>
       <div class="section-head" style="margin-top:14px;">
         <div><h3>Stdin input</h3><p class="section-desc">Send bytes to a spawned process with <code>stdio=pipe</code> (device.input).</p></div>
       </div>
@@ -190,11 +253,80 @@ function renderFridaTargetView(body, serial) {
   document.getElementById('frida-pending-refresh-btn').addEventListener('click', () => loadFridaPendingSpawn(serial));
   document.getElementById('frida-pending-children-refresh-btn').addEventListener('click', () => loadFridaPendingChildren(serial));
   document.getElementById('frida-stdin-send-btn').addEventListener('click', () => sendFridaStdin(serial));
+  document.getElementById('frida-kill-btn').addEventListener('click', () => killFridaTarget(serial));
+  document.getElementById('frida-events-clear-btn').addEventListener('click', () => {
+    FRIDA_EVENT_LOG = [];
+    renderFridaEventsPanel();
+  });
   if (FRIDA_SELECTED_PID) {
     const pidEl = document.getElementById('frida-stdin-pid');
     if (pidEl && !pidEl.value) pidEl.value = String(FRIDA_SELECTED_PID);
   }
+  renderFridaEventsPanel();
   reloadFridaTarget(serial);
+}
+
+function formatFridaEventDetail(ev) {
+  if (!ev) return '—';
+  if (ev.type === 'process-crashed') {
+    return `pid=${ev.pid ?? '?'} ${ev.process_name || ''} — ${ev.summary || 'crashed'}`.trim();
+  }
+  if (ev.type === 'output') return `pid=${ev.pid} fd=${ev.fd}: ${(ev.data || '').slice(0, 120)}`;
+  const id = ev.identifier || ev.path || '';
+  const parent = ev.parent_pid != null ? ` parent=${ev.parent_pid}` : '';
+  return `pid=${ev.pid ?? '?'}${parent} ${id}`.trim();
+}
+
+function renderFridaEventsPanel() {
+  const body = document.getElementById('frida-events-body');
+  if (!body) return;
+  const rows = FRIDA_EVENT_LOG.slice(-100).reverse();
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="3" class="muted">Waiting for events…</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map((ev, idx) => {
+    const t = ev.ts ? new Date(ev.ts * 1000).toLocaleTimeString() : '—';
+    const type = escapeHtml(ev.type || '?');
+    const detail = escapeHtml(formatFridaEventDetail(ev));
+    const crashBtn = ev.type === 'process-crashed'
+      ? ` <button type="button" data-frida-crash-idx="${FRIDA_EVENT_LOG.length - 1 - idx}" class="linkish">report</button>`
+      : '';
+    return `<tr>
+      <td class="muted">${escapeHtml(t)}</td>
+      <td><code>${type}</code></td>
+      <td>${detail}${crashBtn}</td>
+    </tr>`;
+  }).join('');
+  body.querySelectorAll('button[data-frida-crash-idx]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.fridaCrashIdx);
+      showFridaCrashDetail(FRIDA_EVENT_LOG[i]);
+    });
+  });
+}
+
+function showFridaCrashDetail(ev) {
+  const box = document.getElementById('frida-crash-detail');
+  if (!box || !ev) return;
+  box.style.display = 'block';
+  const prefer = ['pid', 'process_name', 'summary', 'report'];
+  box.innerHTML = `
+    <div class="section-head"><div><h3>Crash report</h3>
+      <p class="section-desc">From <code>device.on('process-crashed')</code></p></div></div>
+    ${renderKeyValueTable(ev, prefer)}
+    ${ev.report ? `<pre class="shell-output" style="max-height:280px; margin-top:8px;">${escapeHtml(String(ev.report))}</pre>` : '<p class="muted">No native report attached.</p>'}
+  `;
+}
+
+function pushFridaEvent(ev) {
+  if (!ev || !ev.type) return;
+  FRIDA_EVENT_LOG.push(ev);
+  if (FRIDA_EVENT_LOG.length > 200) FRIDA_EVENT_LOG.splice(0, FRIDA_EVENT_LOG.length - 200);
+  renderFridaEventsPanel();
+  if (ev.type === 'process-crashed' && ev.report) {
+    // Keep last crash detail ready without forcing open every time.
+  }
 }
 
 async function loadFridaPendingChildren(serial) {
@@ -273,6 +405,28 @@ async function fridaPidAction(serial, action, pid) {
   if (FRIDA_TARGET_MODE === 'processes') loadFridaProcesses(serial);
 }
 
+async function killFridaTarget(serial, targetOverride) {
+  const input = document.getElementById('frida-kill-target');
+  const target = (targetOverride != null ? String(targetOverride) : (input?.value || '')).trim();
+  if (!target) { toast('Enter a PID or process name to kill', 'error'); return; }
+  if (!confirm(`Kill ${target}?`)) return;
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/kill`, {
+      method: 'POST',
+      body: { target },
+    });
+    const data = await res.json();
+    toast(data.ok ? `Killed ${target}` : `Kill failed: ${data.error}`, data.ok ? 'success' : 'error');
+    if (data.ok) {
+      if (input) input.value = '';
+      if (FRIDA_TARGET_MODE === 'processes') loadFridaProcesses(serial);
+      else loadFridaApplications(serial);
+    }
+  } catch (err) {
+    toast(String(err), 'error');
+  }
+}
+
 function setFridaTargetMode(serial, mode) {
   if (FRIDA_TARGET_MODE === mode) return;
   FRIDA_TARGET_MODE = mode;
@@ -301,6 +455,7 @@ function renderFridaScriptView(body, serial) {
         <button id="frida-save-script-btn">Save</button>
         <button id="frida-delete-script-btn">Delete</button>
       </div>
+      <p id="frida-script-desc" class="section-desc muted" style="margin:6px 0 8px;"></p>
       <textarea id="frida-script-editor" spellcheck="false" style="width:100%; min-height:280px; font-family:Consolas, monospace;"></textarea>
       <div class="section-head" style="margin-top:14px;">
         <div><h3>Attach</h3><p class="section-desc">Attach to the process selected on the Target tab, or spawn a fresh package.</p></div>
@@ -336,6 +491,7 @@ function renderFridaScriptView(body, serial) {
   document.getElementById('frida-delete-script-btn').addEventListener('click', deleteFridaScript);
   document.getElementById('frida-attach-selected-btn').addEventListener('click', () => attachFrida(serial));
   document.getElementById('frida-spawn-btn').addEventListener('click', () => attachFrida(serial, true));
+  document.getElementById('frida-script-select').addEventListener('change', loadSelectedFridaScript);
   loadFridaScripts();
 }
 
@@ -350,6 +506,21 @@ function setFridaConsole(text, append = false, type = 'info') {
   };
   line.style.color = colors[type] || colors.info;
   line.textContent = text;
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+}
+
+function setFridaConsoleHtml(html, append = false, type = 'info') {
+  const out = document.getElementById('frida-console');
+  if (!out) return;
+  if (!append) out.innerHTML = '';
+  const line = document.createElement('div');
+  const colors = {
+    send: '#35c46a', error: '#e0563d', info: '#d8dee9', message: '#4f8cff',
+    log: '#d8dee9', warning: '#e0b341', warn: '#e0b341', debug: '#8b949e',
+  };
+  line.style.color = colors[type] || colors.info;
+  line.innerHTML = html;
   out.appendChild(line);
   out.scrollTop = out.scrollHeight;
 }
@@ -424,7 +595,8 @@ function renderFridaProcessTable() {
       <td>
         <button data-frida-pid="${p.pid}">Select</button>
         <button data-frida-infoproc="${p.pid}" title="Show process metadata">Info</button>
-        <button data-frida-killproc="${p.pid}" title="Kill this process">Kill</button>
+        <button data-frida-killproc="${p.pid}" title="Kill by PID">Kill PID</button>
+        <button data-frida-killname="${escapeHtml(p.name || '')}" title="Kill by process name">Kill name</button>
       </td>
     </tr>
   `).join('');
@@ -440,19 +612,39 @@ function renderFridaProcessTable() {
       if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
     });
   });
+  body.querySelectorAll('button[data-frida-killname]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const serial = getSelectedSerial();
+      const name = btn.dataset.fridaKillname;
+      if (serial && name) killFridaTarget(serial, name);
+    });
+  });
 }
 
 async function loadFridaProcessDetail(serial, query) {
   const out = document.getElementById('frida-target-detail');
   if (!serial || !out) return;
   out.style.display = 'block';
-  out.textContent = 'Loading process metadata...';
+  out.innerHTML = '<p class="muted">Loading process metadata...</p>';
   try {
     const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/process?q=${encodeURIComponent(query)}`);
     const data = await res.json();
-    out.textContent = data.ok ? JSON.stringify(data.process, null, 2) : `Error: ${data.error}`;
+    if (!data.ok) { out.innerHTML = `<p class="muted">Error: ${escapeHtml(data.error || 'failed')}</p>`; return; }
+    const proc = data.process || {};
+    const flat = {
+      pid: proc.pid,
+      name: proc.name,
+      ...(proc.parameters && typeof proc.parameters === 'object' ? proc.parameters : {}),
+    };
+    out.innerHTML = `
+      <div class="section-head"><div><h3>Process metadata</h3>
+        <p class="section-desc">From <code>device.get_process()</code> / enumerate scope=metadata</p></div></div>
+      ${renderKeyValueTable(flat, ['pid', 'name', 'path', 'user', 'ppid', 'uid'])}
+      <details style="margin-top:8px;"><summary class="muted">Raw JSON</summary>
+        <pre class="shell-output" style="max-height:200px;">${escapeHtml(JSON.stringify(proc, null, 2))}</pre>
+      </details>`;
   } catch (err) {
-    out.textContent = String(err);
+    out.innerHTML = `<p class="muted">${escapeHtml(String(err))}</p>`;
   }
 }
 
@@ -460,6 +652,10 @@ function selectFridaPid(pid, btn) {
   document.querySelectorAll('button[data-frida-pid], button[data-frida-app-pid]').forEach((b) => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   FRIDA_SELECTED_PID = pid;
+  const stdin = document.getElementById('frida-stdin-pid');
+  if (stdin) stdin.value = String(pid);
+  const kill = document.getElementById('frida-kill-target');
+  if (kill && !kill.value) kill.value = String(pid);
   toast(`Selected PID ${pid} — switch to the Script tab to attach`, 'info', 2500);
 }
 
@@ -493,7 +689,8 @@ function renderFridaAppTable() {
       <td>${escapeHtml(a.name || '-')}</td>
       <td>${a.running ? `<span class="badge green">running ${a.pid}</span>` : '<span class="muted">stopped</span>'}</td>
       <td>${a.running
-        ? `<button data-frida-app-pid="${a.pid}">Attach</button>`
+        ? `<button data-frida-app-pid="${a.pid}">Attach</button>
+           <button data-frida-killproc="${a.pid}" title="Kill by PID">Kill</button>`
         : `<button data-frida-spawn="${escapeHtml(a.identifier || '')}">Spawn</button>`}</td>
     </tr>
   `).join('');
@@ -505,6 +702,12 @@ function renderFridaAppTable() {
       const pkg = btn.dataset.fridaSpawn;
       FRIDA_SPAWN_PACKAGE = pkg;
       toast(`Spawn target set to ${pkg} — switch to the Script tab and press Spawn + attach`, 'info', 3000);
+    });
+  });
+  body.querySelectorAll('button[data-frida-killproc]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const serial = getSelectedSerial();
+      if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
     });
   });
 }
@@ -530,23 +733,36 @@ async function selectFridaFrontmost(serial) {
 
 async function loadFridaScripts() {
   const select = document.getElementById('frida-script-select');
+  if (!select) return;
   const res = await apiFetch('/api/frida/scripts');
   const data = await res.json();
   window.FRIDA_SCRIPTS = data.scripts || {};
   const names = Object.keys(window.FRIDA_SCRIPTS);
   select.innerHTML = names.map((name) => {
     const s = window.FRIDA_SCRIPTS[name];
-    return `<option value="${escapeHtml(name)}">${escapeHtml(name)}${s.readonly ? ' (template)' : ''}</option>`;
+    const tag = s.readonly ? ' (template)' : '';
+    return `<option value="${escapeHtml(name)}">${escapeHtml(name)}${tag}</option>`;
   }).join('');
   if (names.length) loadSelectedFridaScript();
 }
 
 function loadSelectedFridaScript() {
-  const name = document.getElementById('frida-script-select').value;
+  const name = document.getElementById('frida-script-select')?.value;
   const script = window.FRIDA_SCRIPTS && window.FRIDA_SCRIPTS[name];
   if (!script) return;
-  document.getElementById('frida-script-name').value = script.readonly ? '' : name;
-  document.getElementById('frida-script-editor').value = script.source || '';
+  const nameEl = document.getElementById('frida-script-name');
+  const editor = document.getElementById('frida-script-editor');
+  const desc = document.getElementById('frida-script-desc');
+  if (nameEl) nameEl.value = script.readonly ? '' : name;
+  if (editor) editor.value = script.source || '';
+  if (desc) {
+    const scope = name === 'template-ssl-pinning-bypass'
+      ? ' Coverage: OkHttp CertificatePinner, Conscrypt/TrustManagerImpl, custom TrustManager, WebViewClient (not Flutter/Cronet).'
+      : name === 'template-root-detection-bypass'
+        ? ' Coverage: File.exists, Runtime.exec, SystemProperties, Build.TAGS, PackageManager, RootBeer (not SafetyNet/Play Integrity).'
+        : '';
+    desc.textContent = (script.description || '') + scope;
+  }
 }
 
 async function saveFridaScript() {
@@ -566,6 +782,19 @@ async function deleteFridaScript() {
   const data = await res.json();
   toast(data.ok ? 'Script deleted' : `Delete failed: ${data.error}`, data.ok ? 'success' : 'error');
   if (data.ok) loadFridaScripts();
+}
+
+function enableFridaSessionControls(enabled) {
+  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn',
+   'frida-interrupt-btn', 'frida-terminate-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  });
+  ['frida-rpc-refresh-btn', 'frida-post-input', 'frida-post-data', 'frida-post-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  });
+  if (!enabled) setFridaRpcDisabled(true);
 }
 
 async function attachFrida(serial, spawn = false) {
@@ -621,37 +850,113 @@ async function attachFrida(serial, spawn = false) {
   const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/attach`, { method: 'POST', body });
   const data = await res.json();
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
-  fridaSessionId = data.session_id;
-  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn',
-   'frida-interrupt-btn', 'frida-terminate-btn'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = false;
+  activateFridaSession(data.session_id, {
+    runtime,
+    params: Boolean(body.params),
+    spawnOptions: Boolean(body.argv || body.env || body.cwd || body.stdio),
   });
-  ['frida-rpc-refresh-btn', 'frida-post-input', 'frida-post-btn'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = false;
-  });
-  const notes = [];
-  if (runtime) notes.push(`runtime=${runtime}`);
-  if (body.params) notes.push('params');
-  if (body.argv || body.env || body.cwd || body.stdio) notes.push('spawn-options');
-  const note = notes.length ? ` (${notes.join(', ')})` : '';
-  setFridaConsole(`Attached session ${fridaSessionId}${note}`);
-  startFridaStream(fridaSessionId);
-  startFridaSessionPoll(fridaSessionId);
   startFridaDeviceEventPoll(serial);
+  refreshFridaSessionsList(false);
 }
 
-function clearFridaSessionUi() {
-  fridaSessionId = null;
+function activateFridaSession(sessionId, notes = {}) {
+  fridaSessionId = sessionId;
+  enableFridaSessionControls(true);
+  const parts = [];
+  if (notes.runtime) parts.push(`runtime=${notes.runtime}`);
+  if (notes.params) parts.push('params');
+  if (notes.spawnOptions) parts.push('spawn-options');
+  const note = parts.length ? ` (${parts.join(', ')})` : '';
+  setFridaConsole(`Active session ${sessionId}${note}`);
+  updateFridaSessionMeta();
+  startFridaStream(sessionId);
+  startFridaSessionPoll(sessionId);
+  renderFridaSessionSelect();
+}
+
+function clearFridaSessionUi({ keepSessionId = false } = {}) {
+  if (!keepSessionId) fridaSessionId = null;
   if (fridaSource) { fridaSource.close(); fridaSource = null; }
   if (fridaSessionPollTimer) { clearInterval(fridaSessionPollTimer); fridaSessionPollTimer = null; }
-  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn',
-   'frida-interrupt-btn', 'frida-terminate-btn'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = true;
-  });
-  setFridaRpcDisabled(true);
+  enableFridaSessionControls(false);
+  updateFridaSessionMeta();
+  renderFridaSessionSelect();
+}
+
+function updateFridaSessionMeta() {
+  const el = document.getElementById('frida-session-meta');
+  if (!el) return;
+  if (!fridaSessionId) {
+    el.textContent = 'No active session';
+    return;
+  }
+  const s = FRIDA_SESSIONS.find((x) => x.id === fridaSessionId);
+  if (!s) {
+    el.textContent = `Session ${fridaSessionId}`;
+    return;
+  }
+  const target = typeof s.target === 'object' ? JSON.stringify(s.target) : String(s.target ?? '—');
+  const state = s.detached
+    ? `detached (${s.detach_reason || 'unknown'})`
+    : 'live';
+  el.innerHTML = `Session <code>${escapeHtml(s.id)}</code> · target ${escapeHtml(target)} · ${escapeHtml(state)}${s.runtime ? ` · runtime ${escapeHtml(s.runtime)}` : ''}`;
+}
+
+async function refreshFridaSessionsList(announce) {
+  try {
+    const res = await apiFetch('/api/frida/sessions');
+    const data = await res.json();
+    if (!data.ok) return;
+    FRIDA_SESSIONS = data.sessions || [];
+    renderFridaSessionSelect();
+    updateFridaSessionMeta();
+    if (announce) toast(`${FRIDA_SESSIONS.length} session(s)`, 'info');
+    // If active session disappeared, disable controls.
+    if (fridaSessionId && !FRIDA_SESSIONS.some((s) => s.id === fridaSessionId)) {
+      clearFridaSessionUi();
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function renderFridaSessionSelect() {
+  const sel = document.getElementById('frida-session-select');
+  if (!sel) return;
+  const live = FRIDA_SESSIONS.filter((s) => !s.detached);
+  const detached = FRIDA_SESSIONS.filter((s) => s.detached);
+  const options = [];
+  if (!FRIDA_SESSIONS.length) {
+    options.push(`<option value="">(no sessions)</option>`);
+  } else {
+    live.forEach((s) => {
+      const t = typeof s.target === 'object' ? JSON.stringify(s.target) : s.target;
+      options.push(`<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} · ${escapeHtml(String(t))} [live]</option>`);
+    });
+    detached.forEach((s) => {
+      options.push(`<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} [detached: ${escapeHtml(s.detach_reason || '?')}]</option>`);
+    });
+  }
+  sel.innerHTML = options.join('');
+  if (fridaSessionId) sel.value = fridaSessionId;
+  else if (live.length) { /* leave empty until user picks or attaches */ }
+}
+
+function onFridaSessionSelect() {
+  const sel = document.getElementById('frida-session-select');
+  if (!sel || !sel.value) return;
+  const id = sel.value;
+  const s = FRIDA_SESSIONS.find((x) => x.id === id);
+  if (s && s.detached) {
+    toast(`Session ${id} is detached: ${s.detach_reason || 'unknown'}`, 'error');
+    enableFridaSessionControls(false);
+    fridaSessionId = id;
+    updateFridaSessionMeta();
+    return;
+  }
+  if (id === fridaSessionId && fridaSource) {
+    updateFridaSessionMeta();
+    return;
+  }
+  activateFridaSession(id);
 }
 
 async function interruptFridaScript() {
@@ -675,6 +980,7 @@ async function terminateFridaScript() {
     if (!data.ok) { setFridaConsole(`terminate failed: ${data.error}`, true, 'error'); return; }
     setFridaConsole('script terminated; session dropped', true, 'error');
     clearFridaSessionUi();
+    refreshFridaSessionsList(false);
   } catch (err) {
     setFridaConsole(`terminate error: ${String(err)}`, true, 'error');
   }
@@ -696,15 +1002,22 @@ async function setFridaChildGating(enable) {
 function startFridaSessionPoll(sessionId) {
   if (fridaSessionPollTimer) clearInterval(fridaSessionPollTimer);
   fridaSessionPollTimer = setInterval(async () => {
-    if (!fridaSessionId || fridaSessionId !== sessionId) return;
     try {
+      // Refresh full list so multi-session state stays current.
+      await refreshFridaSessionsList(false);
+      if (!fridaSessionId || fridaSessionId !== sessionId) return;
       const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(sessionId)}`);
       const data = await res.json();
       if (!data.ok) return;
       const sess = data.session || {};
       if (sess.detached) {
         setFridaConsole(`session detached: ${sess.detach_reason || 'unknown reason'} (poll)`, true, 'error');
-        clearFridaSessionUi();
+        if (sess.crash || (sess.detach_reason && String(sess.detach_reason).includes('crash'))) {
+          // detach reason already printed
+        }
+        enableFridaSessionControls(false);
+        if (fridaSource) { fridaSource.close(); fridaSource = null; }
+        updateFridaSessionMeta();
       }
     } catch (e) { /* ignore transient poll errors */ }
   }, 4000);
@@ -712,7 +1025,7 @@ function startFridaSessionPoll(sessionId) {
 
 function setFridaRpcDisabled(disabled) {
   ['frida-rpc-refresh-btn', 'frida-rpc-select', 'frida-rpc-args', 'frida-rpc-call-btn',
-   'frida-post-input', 'frida-post-btn'].forEach((id) => {
+   'frida-post-input', 'frida-post-data', 'frida-post-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = disabled;
   });
@@ -721,17 +1034,30 @@ function setFridaRpcDisabled(disabled) {
 async function postFridaMessage() {
   if (!fridaSessionId) return;
   const input = document.getElementById('frida-post-input');
-  const raw = input.value.trim();
-  if (!raw) return;
-  let message;
-  try { message = JSON.parse(raw); } catch (e) { message = raw; }  // fall back to plain string
-  setFridaConsole(`post: ${raw}`, true, 'send');
+  const dataEl = document.getElementById('frida-post-data');
+  const raw = (input?.value || '').trim();
+  const hex = (dataEl?.value || '').trim();
+  if (!raw && !hex) return;
+  let message = raw;
+  if (raw) {
+    try { message = JSON.parse(raw); } catch (e) { message = raw; }
+  } else {
+    message = null;
+  }
+  if (hex && !/^[0-9a-fA-F]*$/.test(hex)) {
+    toast('Binary data must be hex digits only', 'error');
+    return;
+  }
+  setFridaConsole(`post: ${raw || '(null)'}${hex ? ` + ${hex.length / 2} bytes` : ''}`, true, 'send');
   try {
+    const body = { message };
+    if (hex) body.data = hex;
     const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/post`,
-      { method: 'POST', body: { message } });
+      { method: 'POST', body });
     const data = await res.json();
     if (!data.ok) { setFridaConsole(`post error: ${data.error}`, true, 'error'); return; }
-    input.value = '';
+    if (input) input.value = '';
+    if (dataEl) dataEl.value = '';
   } catch (err) {
     setFridaConsole(`post error: ${String(err)}`, true, 'error');
   }
@@ -779,58 +1105,129 @@ async function callFridaExport() {
   }
 }
 
+function recordFridaBinary(hex, label) {
+  if (!hex) return;
+  fridaBinarySeq += 1;
+  const id = `bin-${fridaBinarySeq}`;
+  FRIDA_BINARIES.push({ id, hex, label: label || id, ts: Date.now() });
+  if (FRIDA_BINARIES.length > 50) FRIDA_BINARIES.splice(0, FRIDA_BINARIES.length - 50);
+  renderFridaBinaryList();
+  setFridaConsoleHtml(
+    `binary payload ${escapeHtml(label || id)} (${hex.length / 2} bytes) `
+    + `<button type="button" data-frida-dl-bin="${escapeHtml(id)}">Download</button>`,
+    true,
+    'message',
+  );
+  document.querySelectorAll(`button[data-frida-dl-bin="${id}"]`).forEach((btn) => {
+    btn.addEventListener('click', () => downloadFridaBinaryById(id));
+  });
+}
+
+function renderFridaBinaryList() {
+  const el = document.getElementById('frida-binary-list');
+  if (!el) return;
+  if (!FRIDA_BINARIES.length) {
+    el.textContent = '';
+    return;
+  }
+  el.innerHTML = `Binary payloads: ${FRIDA_BINARIES.map((b) =>
+    `<button type="button" data-frida-dl-bin="${escapeHtml(b.id)}" title="${b.hex.length / 2} bytes">${escapeHtml(b.label)} (${b.hex.length / 2}B)</button>`
+  ).join(' ')}`;
+  el.querySelectorAll('button[data-frida-dl-bin]').forEach((btn) => {
+    btn.addEventListener('click', () => downloadFridaBinaryById(btn.dataset.fridaDlBin));
+  });
+}
+
+function downloadFridaBinaryById(id) {
+  const b = FRIDA_BINARIES.find((x) => x.id === id);
+  if (!b) { toast('Binary not found', 'error'); return; }
+  try {
+    const bytes = new Uint8Array(b.hex.match(/.{1,2}/g).map((h) => parseInt(h, 16)));
+    downloadFridaBlob(bytes, `${b.label || id}.bin`, 'application/octet-stream');
+    toast(`Downloaded ${bytes.length} bytes`, 'success');
+  } catch (e) {
+    toast(`Download failed: ${e}`, 'error');
+  }
+}
+
+function handleFridaStreamEntry(entry) {
+  const msg = entry.message || {};
+  if (msg.type === 'heartbeat') return;
+  if (entry.data_hex) recordFridaBinary(entry.data_hex, `msg-${fridaBinarySeq + 1}`);
+
+  if (msg.type === 'detached') {
+    const crash = msg.crash;
+    let crashTxt = '';
+    if (crash) {
+      crashTxt = ` (crash: ${crash.summary || crash.process_name || ''})`;
+      pushFridaEvent({ type: 'process-crashed', ...crash, ts: Date.now() / 1000 });
+      if (crash.report) {
+        setFridaConsole(`crash report:\n${String(crash.report).slice(0, 2000)}`, true, 'error');
+      }
+    }
+    setFridaConsole(`session detached: ${msg.reason || 'unknown reason'}${crashTxt}`, true, 'error');
+    enableFridaSessionControls(false);
+    if (fridaSource) { fridaSource.close(); fridaSource = null; }
+    updateFridaSessionMeta();
+    refreshFridaSessionsList(false);
+    return;
+  }
+  if (msg.type === 'process-crashed') {
+    pushFridaEvent(msg);
+    setFridaConsole(
+      `crash: pid=${msg.pid ?? '?'} ${msg.process_name || ''} — ${msg.summary || 'process crashed'}`.trim(),
+      true,
+      'error',
+    );
+    if (msg.report) {
+      setFridaConsole(`crash report:\n${String(msg.report).slice(0, 4000)}`, true, 'error');
+      showFridaCrashDetail(msg);
+    }
+    return;
+  }
+  if (msg.type === 'output') {
+    pushFridaEvent(msg);
+    setFridaConsole(`stdio[${msg.fd}] pid=${msg.pid}: ${msg.data || ''}`, true, 'info');
+    return;
+  }
+  if (msg.type === 'spawn-added' || msg.type === 'spawn-removed'
+      || msg.type === 'child-added' || msg.type === 'child-removed') {
+    pushFridaEvent(msg);
+    setFridaConsole(
+      `${msg.type}: pid=${msg.pid ?? '?'} ${msg.identifier || msg.path || ''}`.trim(),
+      true,
+      'message',
+    );
+    const serial = getSelectedSerial();
+    if (serial) {
+      if (msg.type.startsWith('spawn')) loadFridaPendingSpawn(serial);
+      if (msg.type.startsWith('child')) loadFridaPendingChildren(serial);
+    }
+    return;
+  }
+  if (msg.type === 'log') {
+    const level = (msg.level || 'info').toLowerCase();
+    const label = level === 'warning' ? 'warn' : level;
+    setFridaConsole(`${label}: ${msg.payload ?? ''}`, true, label === 'error' ? 'error' : label);
+  } else if (msg.type === 'send') {
+    setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
+    if (entry.data) setFridaConsole(`  data: ${entry.data}`, true, 'debug');
+  } else if (msg.type === 'error') {
+    setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
+  } else {
+    setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
+  }
+}
+
 function startFridaStream(sessionId) {
   if (fridaSource) fridaSource.close();
   fridaSource = new EventSource(`/api/frida/sessions/${encodeURIComponent(sessionId)}/stream`);
   fridaSource.onmessage = (event) => {
-    const entry = JSON.parse(event.data);
-    const msg = entry.message || {};
-    if (msg.type === 'heartbeat') return;
-    if (msg.type === 'detached') {
-      const crash = msg.crash ? ` (crash: ${msg.crash.summary || msg.crash.process_name || ''})` : '';
-      setFridaConsole(`session detached: ${msg.reason || 'unknown reason'}${crash}`, true, 'error');
-      clearFridaSessionUi();
-      return;
-    }
-    if (msg.type === 'process-crashed') {
-      setFridaConsole(
-        `crash: pid=${msg.pid ?? '?'} ${msg.process_name || ''} — ${msg.summary || 'process crashed'}`.trim(),
-        true,
-        'error',
-      );
-      return;
-    }
-    if (msg.type === 'output') {
-      setFridaConsole(`stdio[${msg.fd}] pid=${msg.pid}: ${msg.data || ''}`, true, 'info');
-      return;
-    }
-    if (msg.type === 'spawn-added' || msg.type === 'spawn-removed'
-        || msg.type === 'child-added' || msg.type === 'child-removed') {
-      setFridaConsole(
-        `${msg.type}: pid=${msg.pid ?? '?'} ${msg.identifier || msg.path || ''}`.trim(),
-        true,
-        'message',
-      );
-      const serial = getSelectedSerial();
-      if (serial) {
-        if (msg.type.startsWith('spawn')) loadFridaPendingSpawn(serial);
-        if (msg.type.startsWith('child')) loadFridaPendingChildren(serial);
-      }
-      return;
-    }
-    if (msg.type === 'log') {
-      const level = (msg.level || 'info').toLowerCase();
-      const label = level === 'warning' ? 'warn' : level;
-      setFridaConsole(`${label}: ${msg.payload ?? ''}`, true, label === 'error' ? 'error' : label);
-    } else if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
-    else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
-    else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
+    try {
+      handleFridaStreamEntry(JSON.parse(event.data));
+    } catch (e) { /* ignore parse errors */ }
   };
 }
-
-let fridaDeviceEventTimer = null;
-let fridaDeviceEventAfter = 0;
-let fridaDeviceEventSerial = null;
 
 function startFridaDeviceEventPoll(serial) {
   if (!serial) return;
@@ -838,7 +1235,6 @@ function startFridaDeviceEventPoll(serial) {
   if (fridaDeviceEventTimer) clearInterval(fridaDeviceEventTimer);
   fridaDeviceEventSerial = serial;
   fridaDeviceEventAfter = 0;
-  // Wire handlers once (idempotent on server).
   apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/events/wire`, { method: 'POST' }).catch(() => {});
   fridaDeviceEventTimer = setInterval(() => pollFridaDeviceEvents(serial), 2500);
   pollFridaDeviceEvents(serial);
@@ -859,7 +1255,8 @@ async function pollFridaDeviceEvents(serial) {
       if (ev.ts && ev.ts > fridaDeviceEventAfter) fridaDeviceEventAfter = ev.ts;
       if (ev.type && String(ev.type).startsWith('spawn')) sawSpawn = true;
       if (ev.type && String(ev.type).startsWith('child')) sawChild = true;
-      // Live sessions already receive these via SSE fan-out — avoid double-printing.
+      pushFridaEvent(ev);
+      // Avoid double console spam when session SSE already fans these out.
       if (fridaSessionId) continue;
       if (ev.type === 'process-crashed') {
         setFridaConsole(
@@ -867,6 +1264,7 @@ async function pollFridaDeviceEvents(serial) {
           true,
           'error',
         );
+        if (ev.report) setFridaConsole(`crash report:\n${String(ev.report).slice(0, 2000)}`, true, 'error');
       } else if (ev.type === 'output') {
         setFridaConsole(`stdio[${ev.fd}] pid=${ev.pid}: ${ev.data || ''}`, true, 'info');
       } else if (ev.type) {
@@ -906,7 +1304,6 @@ async function sendFridaStdin(serial) {
 }
 
 async function exportFridaConsole(format) {
-  // Prefer server-side buffer (full session log including binary hex); fall back to DOM text.
   if (fridaSessionId) {
     try {
       const res = await apiFetch(
@@ -922,6 +1319,10 @@ async function exportFridaConsole(format) {
       } else {
         const data = await res.json();
         if (data.ok) {
+          // Harvest any data_hex into the binary list for one-click download.
+          (data.messages || []).forEach((item, i) => {
+            if (item.data_hex) recordFridaBinary(item.data_hex, `export-${i + 1}`);
+          });
           downloadFridaBlob(JSON.stringify(data, null, 2), `frida-session-${fridaSessionId}.json`, 'application/json');
           toast('Exported console as JSON', 'success');
           return;
@@ -946,6 +1347,58 @@ async function exportFridaConsole(format) {
   toast('Exported console from UI', 'success');
 }
 
+async function exportFridaBinaries() {
+  // Prefer session export harvest; fall back to in-memory list.
+  if (fridaSessionId) {
+    try {
+      const res = await apiFetch(
+        `/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/export?format=json`,
+      );
+      const data = await res.json();
+      if (data.ok) {
+        const bins = [];
+        (data.messages || []).forEach((item, i) => {
+          if (item.data_hex) bins.push({ hex: item.data_hex, label: `payload-${i + 1}` });
+        });
+        if (!bins.length && !FRIDA_BINARIES.length) {
+          toast('No binary payloads in this session', 'info');
+          return;
+        }
+        const all = bins.length ? bins : FRIDA_BINARIES;
+        if (all.length === 1) {
+          downloadFridaBinaryHex(all[0].hex, all[0].label || 'payload');
+          return;
+        }
+        // Zip-less multi-download: JSON manifest + individual .bin for each.
+        downloadFridaBlob(
+          JSON.stringify(all.map((b) => ({ label: b.label, bytes: b.hex.length / 2, hex: b.hex })), null, 2),
+          `frida-binaries-${fridaSessionId}.json`,
+          'application/json',
+        );
+        all.forEach((b, i) => {
+          setTimeout(() => downloadFridaBinaryHex(b.hex, b.label || `payload-${i + 1}`), 100 * (i + 1));
+        });
+        toast(`Exported ${all.length} binary payload(s)`, 'success');
+        return;
+      }
+    } catch (e) { /* fall through */ }
+  }
+  if (!FRIDA_BINARIES.length) { toast('No binary payloads captured', 'info'); return; }
+  FRIDA_BINARIES.forEach((b, i) => {
+    setTimeout(() => downloadFridaBinaryHex(b.hex, b.label || `payload-${i + 1}`), 100 * (i + 1));
+  });
+  toast(`Exported ${FRIDA_BINARIES.length} binary payload(s)`, 'success');
+}
+
+function downloadFridaBinaryHex(hex, label) {
+  try {
+    const bytes = new Uint8Array(hex.match(/.{1,2}/g).map((h) => parseInt(h, 16)));
+    downloadFridaBlob(bytes, `${label || 'payload'}.bin`, 'application/octet-stream');
+  } catch (e) {
+    toast(`Binary export failed: ${e}`, 'error');
+  }
+}
+
 function downloadFridaBlob(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -968,6 +1421,7 @@ async function eternalizeFrida() {
   clearFridaSessionUi();
   setFridaConsole(`Session ${id} eternalized — script remains on target`, true, 'info');
   toast('Script eternalized', 'success');
+  refreshFridaSessionsList(false);
 }
 
 async function detachFrida() {
@@ -977,6 +1431,7 @@ async function detachFrida() {
   const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(id)}/detach`, { method: 'POST' });
   const data = await res.json();
   toast(data.ok ? 'Detached' : `Detach failed: ${data.error}`, data.ok ? 'success' : 'error');
+  refreshFridaSessionsList(false);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

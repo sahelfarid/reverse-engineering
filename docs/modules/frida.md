@@ -41,7 +41,8 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | POST | `/api/frida/sessions/<session_id>/child-gating/enable` | Follow fork()/exec() children on this session. |
 | POST | `/api/frida/sessions/<session_id>/child-gating/disable` | Stop following children. |
 | POST | `/api/devices/<serial>/frida/resume/<pid>` | Resume a suspended process. |
-| POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process via the Frida device API. |
+| POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process by PID via the Frida device API. |
+| POST | `/api/devices/<serial>/frida/kill` | Kill by PID or name (`target` / `pid` / `name` in body). |
 | POST | `/api/devices/<serial>/frida/input/<pid>` | Feed stdin bytes to a process (`data` + optional `encoding` `utf8`/`hex`). |
 | POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. Optional `runtime` (`qjs`/`v8`), `params` object (injected as `const PARAMS`), and spawn options `argv`/`env`/`cwd`/`stdio`. |
 | GET | `/api/frida/sessions` | List active sessions (refreshes `is_detached()`). |
@@ -50,7 +51,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | GET | `/api/frida/sessions/<session_id>/export` | Download buffered console log (`format=json` or `text`). |
 | GET | `/api/frida/sessions/<session_id>/exports` | List the attached script's `rpc.exports` names. |
 | POST | `/api/frida/sessions/<session_id>/exports/<name>` | Invoke an export with positional JSON `args`. |
-| POST | `/api/frida/sessions/<session_id>/post` | Send a `message` (+ optional hex `data`) into the script's `recv()`. |
+| POST | `/api/frida/sessions/<session_id>/post` | Send a `message` and/or hex `data` into the script's `recv()` / binary side-channel. |
 | POST | `/api/frida/sessions/<session_id>/eternalize` | Eternalize the script (keeps running after client disconnect) then drop the session. |
 | POST | `/api/frida/sessions/<session_id>/interrupt` | Interrupt the script's current execution (session stays alive). |
 | POST | `/api/frida/sessions/<session_id>/terminate` | Force-terminate a runaway script and drop the session. |
@@ -75,7 +76,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - Spawn attach accepts optional `argv` (list), `env`/`envp` (object), `cwd`, and `stdio` (`inherit`/`pipe`) and passes them to `device.spawn()`.
 - `input_to_process()` wraps `device.input(pid, data)` for feeding stdin of spawned targets (especially with `stdio=pipe`).
 - Device signal handlers (`spawn-added/removed`, `child-added/removed`, `process-crashed`, `output`) are wired on spawn-gating enable, child-gating enable, attach, or explicit `/events/wire`. Events are ring-buffered per serial, polled via `/events`, and fan out into live session consoles.
-- Each session keeps a bounded message log (script messages, logs, detach, device events). `GET .../export?format=json|text` downloads it; the UI also has Export .txt / .json buttons.
+- Each session keeps a bounded message log (script messages, logs, detach, device events). `GET .../export?format=json|text` downloads it; the UI has Export .txt / .json / binaries, a session switcher (`GET /api/frida/sessions`), structured system/process panels, a device event table with crash reports, kill-by-name, and `script.post` binary hex side-channel.
 - `eternalize_session()` calls `script.eternalize()` then detaches without `unload()`, so the agent keeps running on the target after the UI disconnects.
 - The session registry and message queues are process-local.
 

@@ -150,6 +150,24 @@ def kill_pid(serial, pid):
     return jsonify(result)
 
 
+@bp.post("/api/devices/<serial>/frida/kill")
+@auth.login_required
+@auth.csrf_protect
+def kill_target(serial):
+    """Kill by pid or process name: body {\"target\"|\"pid\"|\"name\": ...}."""
+    d = request.get_json(silent=True) or {}
+    target = d.get("target")
+    if target is None:
+        target = d.get("pid") if d.get("pid") is not None else d.get("name")
+    if target is None or str(target).strip() == "":
+        return jsonify({"ok": False, "error": "missing_target"}), 400
+    result, err = _wrap(frida_manager.kill_process, serial, target)
+    if err:
+        return err
+    auth.audit_log("frida_kill", {"serial": serial, "target": str(target)})
+    return jsonify(result)
+
+
 @bp.post("/api/devices/<serial>/frida/input/<int:pid>")
 @auth.login_required
 @auth.csrf_protect
@@ -297,12 +315,12 @@ def call_export(session_id, name):
 @auth.csrf_protect
 def post_message(session_id):
     d = request.get_json(silent=True) or {}
-    if "message" not in d:
-        return jsonify({"ok": False, "error": "missing_message"}), 400
+    if "message" not in d and "data" not in d:
+        return jsonify({"ok": False, "error": "missing_message_or_data"}), 400
     result, err = _wrap(frida_manager.post_message, session_id, d.get("message"), d.get("data"))
     if err:
         return err
-    auth.audit_log("frida_post_message", {"session_id": session_id})
+    auth.audit_log("frida_post_message", {"session_id": session_id, "has_data": "data" in d})
     return jsonify(result)
 
 

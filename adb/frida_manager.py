@@ -783,14 +783,31 @@ def resume_pid(serial: str, pid) -> dict:
 
 
 def kill_pid(serial: str, pid) -> dict:
-    """Kill a process on the device via the Frida device API."""
+    """Kill a process by PID on the device via the Frida device API."""
+    return kill_process(serial, pid)
+
+
+def kill_process(serial: str, target) -> dict:
+    """Kill a process by PID or name via device.kill().
+
+    Numeric strings are treated as PIDs; anything else is a process name.
+    """
     device = _frida_device(serial)
-    value = _require_pid(pid)
+    raw = str(target if target is not None else "").strip()
+    if not raw:
+        raise manager.AdbError("missing kill target (pid or name)")
+    if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+        value = _require_pid(raw)
+        key = "pid"
+    else:
+        value = raw
+        key = "name"
     try:
         device.kill(value)
     except Exception as exc:
-        raise manager.AdbError(f"failed to kill pid {value}: {exc}") from exc
-    return {"ok": True, "pid": value, "killed": True}
+        raise manager.AdbError(f"failed to kill {key} {value}: {exc}") from exc
+    result = {"ok": True, "killed": True, key: value}
+    return result
 
 
 def get_system_parameters(serial: str) -> dict:
@@ -885,6 +902,7 @@ def _summarize_crash(crash) -> dict | None:
         "pid": getattr(crash, "pid", None),
         "process_name": getattr(crash, "process_name", None),
         "summary": getattr(crash, "summary", None),
+        "report": getattr(crash, "report", None),
     }
 
 
