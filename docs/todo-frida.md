@@ -1,10 +1,10 @@
 # Frida Module — Feature Backlog (Top 100)
 
-> **Scope.** This tracks Frida capabilities **not yet implemented** in our module
-> (`adb/frida_manager.py`, `routes/frida.py`, `static/js/frida.js`). Everything below
-> is marked **⬜ Pending implementation**. All items are for **authorized testing only**
-> (your own devices/apps or targets you have written permission to test), consistent
-> with the rest of the toolkit.
+> **Scope.** This tracks Frida capabilities for our module
+> (`adb/frida_manager.py`, `routes/frida.py`, `static/js/frida.js`). Items still open are
+> marked **⬜ Pending implementation**; completed backlog items are **✅ Implemented**.
+> All items are for **authorized testing only** (your own devices/apps or targets you
+> have written permission to test), consistent with the rest of the toolkit.
 
 ## Current baseline (already implemented — for reference, not in the 100)
 
@@ -14,12 +14,14 @@ PID/name, spawn+attach+resume, per-session message queue, one-way SSE stream wit
 heartbeat, fixed-window drain, detach, script store CRUD with three read-only templates,
 name/size validation, and audit logging.
 
-Installed engine: **frida 17.15.3** — its Python API already exposes remote devices,
-spawn/child gating, `enumerate_applications`, RPC exports, `Compiler`, `PackageManager`,
-`PortalService`, `FileMonitor`, snapshots, log handlers, and `script.post()`. None of
-these are wired up yet.
+Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#13** version-match
+guard, **#25/#27** installed-app enumeration + frontmost shortcut, **#31/#32/#37** spawn
+gating + pending-spawn queue + kill, **#39** detach-reason reporting, **#47/#48** RPC
+exports + two-way `script.post`, **#83/#84** full SSL-pinning and root-detection agents.
+Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
+`PortalService`, `FileMonitor`, snapshots, structured log handlers, etc.
 
-**Legend:** ⬜ Pending implementation
+**Legend:** ⬜ Pending implementation · ✅ Implemented
 
 ---
 
@@ -177,16 +179,16 @@ these are wired up yet.
 
 ### Summary
 
-| Category | Items | Status |
-|---|---|---|
-| A. Device & Connection Management | 1–12 | ⬜ Pending implementation |
-| B. frida-server & Gadget Provisioning | 13–24 | ⬜ Pending implementation |
-| C. Process, Application & Spawn Control | 25–38 | ⬜ Pending implementation |
-| D. Session Lifecycle | 39–46 | ⬜ Pending implementation |
-| E. Script Engine & RPC | 47–58 | ⬜ Pending implementation |
-| F. Native Instrumentation Primitives | 59–72 | ⬜ Pending implementation |
-| G. Java / Android Runtime Instrumentation | 73–82 | ⬜ Pending implementation |
-| H. Ready-Made Bypass & Monitoring Modules | 83–92 | ⬜ Pending implementation |
-| I. Tooling / CLI Parity | 93–96 | ⬜ Pending implementation |
-| J. Console, Output & UX | 97–100 | ⬜ Pending implementation |
-| **Total** | **100** | **⬜ Pending implementation** |
+| Category | Items | Done | Remaining | Status |
+|---|---|---|---|---|
+| A. Device & Connection Management | 1–12 | 0 | 12 | ⬜ Pending implementation |
+| B. frida-server & Gadget Provisioning | 13–24 | 1 (#13) | 11 | ⬜ Partial |
+| C. Process, Application & Spawn Control | 25–38 | 5 (#25, #27, #31, #32, #37) | 9 | ⬜ Partial |
+| D. Session Lifecycle | 39–46 | 1 (#39) | 7 | ⬜ Partial |
+| E. Script Engine & RPC | 47–58 | 2 (#47, #48) | 10 | ⬜ Partial |
+| F. Native Instrumentation Primitives | 59–72 | 0 | 14 | ⬜ Pending implementation |
+| G. Java / Android Runtime Instrumentation | 73–82 | 0 | 10 | ⬜ Pending implementation |
+| H. Ready-Made Bypass & Monitoring Modules | 83–92 | 2 (#83, #84) | 8 | ⬜ Partial |
+| I. Tooling / CLI Parity | 93–96 | 0 | 4 | ⬜ Pending implementation |
+| J. Console, Output & UX | 97–100 | 0 | 4 | ⬜ Pending implementation |
+| **Total** | **100** | **11** | **89** | **11 ✅ / 89 ⬜** |
