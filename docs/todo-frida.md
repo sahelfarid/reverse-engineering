@@ -73,8 +73,8 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 30 | Spawn stdio capture | Capture child stdout/stderr into the console. | `spawn(..., stdio='pipe')` + `device.on('output')` | ⬜ Pending implementation |
 | 31 | Spawn gating | Auto-suspend **every** new process to hook it before it runs. | `device.enable_spawn_gating()` + `'spawn-added'` | ✅ Implemented |
 | 32 | Pending-spawn queue UI | Show/resume/kill spawn-gated processes awaiting decision. | `device.enumerate_pending_spawn()` | ✅ Implemented |
-| 33 | Child gating (follow forks) | Follow `fork()`/`exec()` children so subprocesses stay instrumented. | `session.enable_child_gating()` + `'child-added'` | ⬜ Pending implementation |
-| 34 | Pending-children queue UI | Show/resume/kill child-gated processes. | `device.enumerate_pending_children()` | ⬜ Pending implementation |
+| 33 | Child gating (follow forks) | Follow `fork()`/`exec()` children so subprocesses stay instrumented. | `session.enable_child_gating()` + `'child-added'` | ✅ Implemented |
+| 34 | Pending-children queue UI | Show/resume/kill child-gated processes. | `device.enumerate_pending_children()` | ✅ Implemented |
 | 35 | Child/spawn signal stream | Surface `child-added/removed`, `spawn-added/removed` events live. | `device.on(...)` signals | ⬜ Pending implementation |
 | 36 | Process-crash reporting | Report crashes with signal + native report/backtrace. | `device.on('process-crashed')` | ⬜ Pending implementation |
 | 37 | Kill by PID/name | Kill a target process from the process table. | `device.kill(pid)` | ✅ Implemented |

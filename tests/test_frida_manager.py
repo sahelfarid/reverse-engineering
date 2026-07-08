@@ -730,6 +730,61 @@ def test_list_pending_spawn_sorts_by_pid():
     ]
 
 
+def test_list_pending_children_sorts_by_pid_with_metadata():
+    pending = [
+        types.SimpleNamespace(pid=30, parent_pid=5, identifier="com.c", path="/c"),
+        types.SimpleNamespace(pid=10, parent_pid=5, identifier="com.a", path="/a"),
+    ]
+    device = types.SimpleNamespace(enumerate_pending_children=lambda: pending)
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.list_pending_children("s1")
+    assert result == [
+        {"pid": 10, "parent_pid": 5, "identifier": "com.a", "path": "/a"},
+        {"pid": 30, "parent_pid": 5, "identifier": "com.c", "path": "/c"},
+    ]
+
+
+def test_list_pending_children_wraps_errors():
+    device = types.SimpleNamespace(
+        enumerate_pending_children=MagicMock(side_effect=RuntimeError("nope"))
+    )
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        with pytest.raises(manager.AdbError, match="failed to list pending children"):
+            frida_manager.list_pending_children("s1")
+
+
+def test_set_child_gating_enable_and_disable():
+    frida_manager._sessions.clear()
+    session = MagicMock()
+    session.is_detached.return_value = False
+    frida_manager._sessions["s"] = {"detached": False, "session": session}
+    assert frida_manager.set_child_gating("s", True) == {"ok": True, "child_gating": True}
+    assert frida_manager._sessions["s"]["child_gating"] is True
+    session.enable_child_gating.assert_called_once_with()
+    assert frida_manager.set_child_gating("s", False) == {"ok": True, "child_gating": False}
+    session.disable_child_gating.assert_called_once_with()
+    frida_manager._sessions.clear()
+
+
+def test_set_child_gating_rejects_detached_session():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"detached": True, "session": MagicMock()}
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager.set_child_gating("s", True)
+    frida_manager._sessions.clear()
+
+
+def test_set_child_gating_wraps_errors():
+    frida_manager._sessions.clear()
+    session = MagicMock()
+    session.is_detached.return_value = False
+    session.enable_child_gating.side_effect = RuntimeError("boom")
+    frida_manager._sessions["s"] = {"detached": False, "session": session}
+    with pytest.raises(manager.AdbError, match="failed to enable child gating"):
+        frida_manager.set_child_gating("s", True)
+    frida_manager._sessions.clear()
+
+
 def test_resume_pid_calls_device_resume():
     device = MagicMock()
     with patch("adb.frida_manager._frida_device", return_value=device):

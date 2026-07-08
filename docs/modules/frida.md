@@ -35,6 +35,9 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | POST | `/api/devices/<serial>/frida/spawn-gating/enable` | Suspend every newly spawned process. |
 | POST | `/api/devices/<serial>/frida/spawn-gating/disable` | Stop suspending new spawns. |
 | GET | `/api/devices/<serial>/frida/pending-spawn` | List spawn-gated processes awaiting resume/kill. |
+| GET | `/api/devices/<serial>/frida/pending-children` | List child-gated processes awaiting resume/kill. |
+| POST | `/api/frida/sessions/<session_id>/child-gating/enable` | Follow fork()/exec() children on this session. |
+| POST | `/api/frida/sessions/<session_id>/child-gating/disable` | Stop following children. |
 | POST | `/api/devices/<serial>/frida/resume/<pid>` | Resume a suspended process. |
 | POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process via the Frida device API. |
 | POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. Optional `runtime` (`qjs`/`v8`) and `params` object (injected as `const PARAMS`). |

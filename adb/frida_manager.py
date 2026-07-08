@@ -547,6 +547,24 @@ def list_pending_spawn(serial: str) -> list[dict]:
     )
 
 
+def list_pending_children(serial: str) -> list[dict]:
+    """List child processes suspended by child gating, awaiting resume or kill."""
+    device = _frida_device(serial)
+    try:
+        pending = device.enumerate_pending_children()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list pending children: {exc}") from exc
+    return sorted(
+        ({
+            "pid": c.pid,
+            "parent_pid": getattr(c, "parent_pid", None),
+            "identifier": getattr(c, "identifier", None),
+            "path": getattr(c, "path", None),
+        } for c in pending),
+        key=lambda c: c["pid"],
+    )
+
+
 def resume_pid(serial: str, pid) -> dict:
     """Resume a suspended (spawn-gated or freshly spawned) process."""
     device = _frida_device(serial)
@@ -914,6 +932,26 @@ def post_message(session_id: str, message, data: str | None = None) -> dict:
     except Exception as exc:
         raise manager.AdbError(f"post failed: {exc}") from exc
     return {"ok": True}
+
+
+def set_child_gating(session_id: str, enable: bool) -> dict:
+    """Enable/disable following fork()/exec() children on a live session.
+
+    Child gating suspends spawned children so they can be inspected before they
+    run; enumerate pending children on the device and resume/kill them by pid.
+    """
+    entry = _live_session(session_id)
+    session = entry["session"]
+    try:
+        if enable:
+            session.enable_child_gating()
+        else:
+            session.disable_child_gating()
+    except Exception as exc:
+        verb = "enable" if enable else "disable"
+        raise manager.AdbError(f"failed to {verb} child gating: {exc}") from exc
+    entry["child_gating"] = bool(enable)
+    return {"ok": True, "child_gating": bool(enable)}
 
 
 def eternalize_session(session_id: str) -> dict:

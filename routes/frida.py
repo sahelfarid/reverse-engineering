@@ -121,6 +121,13 @@ def pending_spawn(serial):
     return err or jsonify({"ok": True, "pending": result})
 
 
+@bp.get("/api/devices/<serial>/frida/pending-children")
+@auth.login_required
+def pending_children(serial):
+    result, err = _wrap(frida_manager.list_pending_children, serial)
+    return err or jsonify({"ok": True, "pending": result})
+
+
 @bp.post("/api/devices/<serial>/frida/resume/<int:pid>")
 @auth.login_required
 @auth.csrf_protect
@@ -236,6 +243,28 @@ def post_message(session_id):
     if err:
         return err
     auth.audit_log("frida_post_message", {"session_id": session_id})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/sessions/<session_id>/child-gating/enable")
+@auth.login_required
+@auth.csrf_protect
+def enable_child_gating(session_id):
+    result, err = _wrap(frida_manager.set_child_gating, session_id, True)
+    if err:
+        return err
+    auth.audit_log("frida_child_gating_enable", {"session_id": session_id})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/sessions/<session_id>/child-gating/disable")
+@auth.login_required
+@auth.csrf_protect
+def disable_child_gating(session_id):
+    result, err = _wrap(frida_manager.set_child_gating, session_id, False)
+    if err:
+        return err
+    auth.audit_log("frida_child_gating_disable", {"session_id": session_id})
     return jsonify(result)
 
 

@@ -138,6 +138,45 @@ def test_pending_spawn_success(auth_client):
     assert res.get_json()["pending"] == pending
 
 
+def test_pending_children_success(auth_client):
+    pending = [{"pid": 10, "parent_pid": 5, "identifier": "com.a", "path": "/a"}]
+    with patch("routes.frida.frida_manager.list_pending_children", return_value=pending):
+        res = auth_client.get("/api/devices/s1/frida/pending-children")
+    assert res.status_code == 200
+    assert res.get_json()["pending"] == pending
+
+
+def test_enable_child_gating_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.set_child_gating", return_value={"ok": True, "child_gating": True}) as mock_set, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/child-gating/enable")
+    assert res.status_code == 200
+    mock_set.assert_called_once_with("sess-1", True)
+    mock_audit.assert_called_once_with("frida_child_gating_enable", {"session_id": "sess-1"})
+
+
+def test_disable_child_gating_success(auth_client):
+    with patch("routes.frida.frida_manager.set_child_gating", return_value={"ok": True, "child_gating": False}) as mock_set, \
+         patch("routes.frida.auth.audit_log"):
+        res = _post(auth_client, "/api/frida/sessions/sess-1/child-gating/disable")
+    assert res.status_code == 200
+    mock_set.assert_called_once_with("sess-1", False)
+    assert res.get_json()["child_gating"] is False
+
+
+def test_child_gating_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.set_child_gating",
+               side_effect=adb_manager.AdbError("session is detached")):
+        res = _post(auth_client, "/api/frida/sessions/sess-1/child-gating/enable")
+    assert res.status_code == 400
+
+
+def test_child_gating_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    res = client.post("/api/frida/sessions/sess-1/child-gating/enable")
+    assert res.status_code == 403
+
+
 def test_resume_pid_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.resume_pid", return_value={"ok": True, "pid": 1234, "resumed": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:

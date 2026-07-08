@@ -55,6 +55,10 @@ function renderFridaTab() {
           <input type="text" id="frida-post-input" placeholder='send to script (JSON or text), delivered to recv()' disabled style="flex:1; min-width:200px;">
           <button id="frida-post-btn" disabled>Send</button>
         </div>
+        <div class="toolbar-row" style="margin-top:6px;">
+          <button id="frida-childgate-on-btn" disabled title="Follow fork()/exec() children (suspends them for inspection)">Child gating on</button>
+          <button id="frida-childgate-off-btn" disabled title="Stop following children">Child gating off</button>
+        </div>
       </section>
       <div id="frida-subnav"></div>
     </div>
@@ -64,6 +68,8 @@ function renderFridaTab() {
   document.getElementById('frida-rpc-refresh-btn').addEventListener('click', loadFridaExports);
   document.getElementById('frida-rpc-call-btn').addEventListener('click', callFridaExport);
   document.getElementById('frida-post-btn').addEventListener('click', postFridaMessage);
+  document.getElementById('frida-childgate-on-btn').addEventListener('click', () => setFridaChildGating(true));
+  document.getElementById('frida-childgate-off-btn').addEventListener('click', () => setFridaChildGating(false));
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
@@ -142,6 +148,16 @@ function renderFridaTargetView(body, serial) {
           <tbody id="frida-pending-body"><tr><td colspan="3" class="muted">Enable gating, then launch the target app.</td></tr></tbody>
         </table>
       </div>
+      <div class="section-head" style="margin-top:14px;">
+        <div><h3>Pending children</h3><p class="section-desc">Children suspended by child gating (enable it from the Live console after attaching).</p></div>
+        <button id="frida-pending-children-refresh-btn">Refresh children</button>
+      </div>
+      <div class="table-wrap auto-height">
+        <table>
+          <thead><tr><th>PID</th><th>Parent</th><th>Identifier / path</th><th>Action</th></tr></thead>
+          <tbody id="frida-pending-children-body"><tr><td colspan="4" class="muted">No pending children.</td></tr></tbody>
+        </table>
+      </div>
     </section>`;
   document.getElementById('frida-mode-processes').addEventListener('click', () => setFridaTargetMode(serial, 'processes'));
   document.getElementById('frida-mode-apps').addEventListener('click', () => setFridaTargetMode(serial, 'apps'));
@@ -151,7 +167,38 @@ function renderFridaTargetView(body, serial) {
   document.getElementById('frida-gating-enable-btn').addEventListener('click', () => setFridaSpawnGating(serial, true));
   document.getElementById('frida-gating-disable-btn').addEventListener('click', () => setFridaSpawnGating(serial, false));
   document.getElementById('frida-pending-refresh-btn').addEventListener('click', () => loadFridaPendingSpawn(serial));
+  document.getElementById('frida-pending-children-refresh-btn').addEventListener('click', () => loadFridaPendingChildren(serial));
   reloadFridaTarget(serial);
+}
+
+async function loadFridaPendingChildren(serial) {
+  const body = document.getElementById('frida-pending-children-body');
+  if (body) body.innerHTML = `<tr><td colspan="4">Loading...</td></tr>`;
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/pending-children`);
+    const data = await res.json();
+    if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
+    const rows = data.pending || [];
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="muted">No pending children</td></tr>`; return; }
+    body.innerHTML = rows.map((c) => `
+      <tr>
+        <td>${c.pid}</td>
+        <td>${c.parent_pid ?? '-'}</td>
+        <td>${escapeHtml(c.identifier || c.path || '-')}</td>
+        <td>
+          <button data-frida-resume="${c.pid}" title="Resume so it runs normally">Resume</button>
+          <button data-frida-kill="${c.pid}" title="Kill the suspended child">Kill</button>
+        </td>
+      </tr>`).join('');
+    body.querySelectorAll('button[data-frida-resume]').forEach((btn) => {
+      btn.addEventListener('click', () => fridaPidAction(serial, 'resume', btn.dataset.fridaResume));
+    });
+    body.querySelectorAll('button[data-frida-kill]').forEach((btn) => {
+      btn.addEventListener('click', () => fridaPidAction(serial, 'kill', btn.dataset.fridaKill));
+    });
+  } catch (err) {
+    if (body) body.innerHTML = `<tr><td colspan="4">${escapeHtml(String(err))}</td></tr>`;
+  }
 }
 
 async function setFridaSpawnGating(serial, enable) {
@@ -196,6 +243,7 @@ async function fridaPidAction(serial, action, pid) {
   const data = await res.json();
   toast(data.ok ? `${action} pid ${pid} ok` : `${action} failed: ${data.error}`, data.ok ? 'success' : 'error');
   loadFridaPendingSpawn(serial);
+  loadFridaPendingChildren(serial);
   if (FRIDA_TARGET_MODE === 'processes') loadFridaProcesses(serial);
 }
 
@@ -513,7 +561,7 @@ async function attachFrida(serial, spawn = false) {
   const data = await res.json();
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
   fridaSessionId = data.session_id;
-  ['frida-detach-btn', 'frida-eternalize-btn'].forEach((id) => {
+  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = false;
   });
@@ -534,11 +582,24 @@ function clearFridaSessionUi() {
   fridaSessionId = null;
   if (fridaSource) { fridaSource.close(); fridaSource = null; }
   if (fridaSessionPollTimer) { clearInterval(fridaSessionPollTimer); fridaSessionPollTimer = null; }
-  ['frida-detach-btn', 'frida-eternalize-btn'].forEach((id) => {
+  ['frida-detach-btn', 'frida-eternalize-btn', 'frida-childgate-on-btn', 'frida-childgate-off-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = true;
   });
   setFridaRpcDisabled(true);
+}
+
+async function setFridaChildGating(enable) {
+  if (!fridaSessionId) return;
+  const action = enable ? 'enable' : 'disable';
+  try {
+    const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/child-gating/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) { setFridaConsole(`child gating ${action} failed: ${data.error}`, true, 'error'); return; }
+    setFridaConsole(`child gating ${action}d — watch the Target tab's Pending children table`, true, 'info');
+  } catch (err) {
+    setFridaConsole(`child gating error: ${String(err)}`, true, 'error');
+  }
 }
 
 function startFridaSessionPoll(sessionId) {
