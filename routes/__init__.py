@@ -19,6 +19,7 @@ from . import root_checker  # noqa: F401
 from . import root_detection  # noqa: F401
 from . import screen  # noqa: F401
 from . import shell  # noqa: F401
+from . import ssl_pinning  # noqa: F401
 
 
 def register_blueprints(app):
@@ -43,3 +44,4 @@ def register_blueprints(app):
     app.register_blueprint(jobs.bp)
     app.register_blueprint(root_detection.bp)
     app.register_blueprint(root_checker.bp)
+    app.register_blueprint(ssl_pinning.bp)
