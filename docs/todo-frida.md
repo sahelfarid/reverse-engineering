@@ -44,7 +44,7 @@ these are wired up yet.
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 13 | Version-match guard | Refuse attach when Python `frida` and on-device `frida-server` versions differ. | Compare `frida.__version__` vs server `--version` | ⬜ Pending implementation |
+| 13 | Version-match guard | Refuse attach when Python `frida` and on-device `frida-server` versions differ. | Compare `frida.__version__` vs server `--version` | ✅ Implemented |
 | 14 | Server checksum verify | Verify SHA-256 of downloaded `frida-server` before pushing. | Hash release asset vs published checksum | ⬜ Pending implementation |
 | 15 | Custom listen address/port | Start `frida-server -l 0.0.0.0:PORT` for remote/lab access. | Pass `-l` when launching server | ⬜ Pending implementation |
 | 16 | Server auth token setup | Launch `frida-server` with `--token` and store it for remote connect. | `frida-server --token` | ⬜ Pending implementation |
@@ -61,26 +61,26 @@ these are wired up yet.
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 25 | Installed-app enumeration | List installed apps (not just running procs) with identifier + name. | `device.enumerate_applications()` | ⬜ Pending implementation |
+| 25 | Installed-app enumeration | List installed apps (not just running procs) with identifier + name. | `device.enumerate_applications()` | ✅ Implemented |
 | 26 | App icons & metadata | Show app icons and running/backgrounded state in the picker. | `enumerate_applications(scope='full')` | ⬜ Pending implementation |
-| 27 | Frontmost app shortcut | One-click attach to the currently foregrounded app. | `device.get_frontmost_application()` | ⬜ Pending implementation |
+| 27 | Frontmost app shortcut | One-click attach to the currently foregrounded app. | `device.get_frontmost_application()` | ✅ Implemented |
 | 28 | Rich process query | Fetch a single process with metadata (path, parameters). | `device.get_process(name, scope=...)` | ⬜ Pending implementation |
 | 29 | Spawn with argv/env/cwd | Spawn with custom arguments, environment, and working directory. | `device.spawn(program, argv=, envp=, cwd=)` | ⬜ Pending implementation |
 | 30 | Spawn stdio capture | Capture child stdout/stderr into the console. | `spawn(..., stdio='pipe')` + `device.on('output')` | ⬜ Pending implementation |
-| 31 | Spawn gating | Auto-suspend **every** new process to hook it before it runs. | `device.enable_spawn_gating()` + `'spawn-added'` | ⬜ Pending implementation |
-| 32 | Pending-spawn queue UI | Show/resume/kill spawn-gated processes awaiting decision. | `device.enumerate_pending_spawn()` | ⬜ Pending implementation |
+| 31 | Spawn gating | Auto-suspend **every** new process to hook it before it runs. | `device.enable_spawn_gating()` + `'spawn-added'` | ✅ Implemented |
+| 32 | Pending-spawn queue UI | Show/resume/kill spawn-gated processes awaiting decision. | `device.enumerate_pending_spawn()` | ✅ Implemented |
 | 33 | Child gating (follow forks) | Follow `fork()`/`exec()` children so subprocesses stay instrumented. | `session.enable_child_gating()` + `'child-added'` | ⬜ Pending implementation |
 | 34 | Pending-children queue UI | Show/resume/kill child-gated processes. | `device.enumerate_pending_children()` | ⬜ Pending implementation |
 | 35 | Child/spawn signal stream | Surface `child-added/removed`, `spawn-added/removed` events live. | `device.on(...)` signals | ⬜ Pending implementation |
 | 36 | Process-crash reporting | Report crashes with signal + native report/backtrace. | `device.on('process-crashed')` | ⬜ Pending implementation |
-| 37 | Kill by PID/name | Kill a target process from the process table. | `device.kill(pid)` | ⬜ Pending implementation |
+| 37 | Kill by PID/name | Kill a target process from the process table. | `device.kill(pid)` | ✅ Implemented |
 | 38 | Send input to stdin | Feed bytes to a spawned target's stdin. | `device.input(pid, data)` | ⬜ Pending implementation |
 
 ## D. Session Lifecycle
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 39 | Detach-reason reporting | Report **why** a session ended (app quit, killed, connection lost). | `session.on('detached', reason)` | ⬜ Pending implementation |
+| 39 | Detach-reason reporting | Report **why** a session ended (app quit, killed, connection lost). | `session.on('detached', reason)` | ✅ Implemented |
 | 40 | Persistent/reconnecting sessions | Survive brief disconnects and re-attach automatically. | `attach(..., persist_timeout=...)` + reconnect | ⬜ Pending implementation |
 | 41 | Multiple scripts per session | Load several scripts into one session and manage them independently. | Multiple `session.create_script()` | ⬜ Pending implementation |
 | 42 | Session state polling | Reflect `is_detached()` in the UI and disable stale controls. | `session.is_detached()` | ⬜ Pending implementation |
@@ -93,8 +93,8 @@ these are wired up yet.
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 47 | RPC exports invocation | Call `rpc.exports` functions from the UI with JSON args and see returns. | `script.exports.<fn>(...)`, `script.list_exports()` | ⬜ Pending implementation |
-| 48 | Two-way messaging (post/recv) | Send messages **into** a running script, not just receive. | `script.post(message, data=)` + agent `recv()` | ⬜ Pending implementation |
+| 47 | RPC exports invocation | Call `rpc.exports` functions from the UI with JSON args and see returns. | `script.exports.<fn>(...)`, `script.list_exports()` | ✅ Implemented |
+| 48 | Two-way messaging (post/recv) | Send messages **into** a running script, not just receive. | `script.post(message, data=)` + agent `recv()` | ✅ Implemented |
 | 49 | Structured log handler | Route `console.log/warn/error` with levels and clean formatting. | `script.set_log_handler()` | ⬜ Pending implementation |
 | 50 | Runtime selection (QJS/V8) | Choose the JS runtime per script for compatibility/perf. | `create_script(..., runtime='qjs'|'v8')` | ⬜ Pending implementation |
 | 51 | Script eternalize | Keep a script running after the client detaches (fire-and-forget). | `script.eternalize()` | ⬜ Pending implementation |
@@ -144,8 +144,8 @@ these are wired up yet.
 
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
-| 83 | Full SSL-pinning bypass | Multi-framework unpinning (OkHttp, TrustManagerImpl, Conscrypt, WebView, Flutter, Cronet) — replace the current stub template. | Bundled maintained agent | ⬜ Pending implementation |
-| 84 | Full root-detection bypass | Broad root-check neutralizer (files, props, packages, `su`, SafetyNet/Play Integrity signals). | Bundled maintained agent | ⬜ Pending implementation |
+| 83 | Full SSL-pinning bypass | Multi-framework unpinning (OkHttp, TrustManagerImpl, Conscrypt, WebView, Flutter, Cronet) — replace the current stub template. | Bundled maintained agent | ✅ Implemented (OkHttp/Conscrypt/TrustManager/WebView) |
+| 84 | Full root-detection bypass | Broad root-check neutralizer (files, props, packages, `su`, SafetyNet/Play Integrity signals). | Bundled maintained agent | ✅ Implemented (files/exec/props/packages/RootBeer) |
 | 85 | Anti-debug / anti-Frida bypass | Defeat common Frida/ptrace/port-scan/`/proc/maps` detections. | Hook detection routines | ⬜ Pending implementation |
 | 86 | Crypto monitor | Log `Cipher`/`Mac`/`MessageDigest`/`KeyStore` inputs/outputs/keys. | Hook `javax.crypto.*` | ⬜ Pending implementation |
 | 87 | Network/socket monitor | Trace socket connects, `OkHttp`/`HttpURLConnection` requests + bodies. | Hook net stack classes | ⬜ Pending implementation |
