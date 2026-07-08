@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 
 import requests
@@ -20,6 +21,9 @@ from . import devices, manager, process_manager
 FRIDA_SERVER_REMOTE = "/data/local/tmp/frida-server"
 FRIDA_PID_REMOTE = "/data/local/tmp/frida-server.pid"
 MAX_SCRIPT_BYTES = 256 * 1024
+_MAX_SESSION_LOG = 5000
+_MAX_DEVICE_EVENT_LOG = 500
+_VALID_STDIO = frozenset({"inherit", "pipe"})
 
 _ABI_ARCH = {
     "armeabi-v7a": "arm",
@@ -32,6 +36,11 @@ _SCRIPT_NAME_RE = re.compile(r"^[A-Za-z0-9_. -]{1,80}$")
 _sessions: dict[str, dict] = {}
 _sessions_lock = threading.Lock()
 _server_pids: dict[str, str] = {}
+# Keep device objects alive so signal handlers stay wired, and buffer device events.
+_device_refs: dict[str, object] = {}
+_device_events: dict[str, deque] = {}
+_device_events_lock = threading.Lock()
+_wired_serials: set[str] = set()
 
 
 DEFAULT_SCRIPTS = {
@@ -522,6 +531,7 @@ def enable_spawn_gating(serial: str) -> dict:
         device.enable_spawn_gating()
     except Exception as exc:
         raise manager.AdbError(f"failed to enable spawn gating: {exc}") from exc
+    wire_device_events(serial, device=device)
     return {"ok": True, "spawn_gating": True}
 
 
@@ -532,6 +542,202 @@ def disable_spawn_gating(serial: str) -> dict:
     except Exception as exc:
         raise manager.AdbError(f"failed to disable spawn gating: {exc}") from exc
     return {"ok": True, "spawn_gating": False}
+
+
+def _spawn_public(spawn) -> dict:
+    return {
+        "pid": getattr(spawn, "pid", None),
+        "identifier": getattr(spawn, "identifier", None),
+    }
+
+
+def _child_public(child) -> dict:
+    return {
+        "pid": getattr(child, "pid", None),
+        "parent_pid": getattr(child, "parent_pid", None),
+        "identifier": getattr(child, "identifier", None),
+        "path": getattr(child, "path", None),
+    }
+
+
+def _crash_public(crash) -> dict:
+    return {
+        "pid": getattr(crash, "pid", None),
+        "process_name": getattr(crash, "process_name", None),
+        "summary": getattr(crash, "summary", None),
+        "report": getattr(crash, "report", None),
+    }
+
+
+def _append_device_event(serial: str, event: dict) -> None:
+    """Record a device-level event and fan it out to live sessions on this serial."""
+    entry = {**event, "ts": time.time()}
+    with _device_events_lock:
+        buf = _device_events.setdefault(serial, deque(maxlen=_MAX_DEVICE_EVENT_LOG))
+        buf.append(entry)
+    with _sessions_lock:
+        for sess in _sessions.values():
+            if sess.get("serial") != serial or sess.get("detached"):
+                continue
+            try:
+                payload = {"message": entry, "data": None}
+                sess["queue"].put_nowait(payload)
+                log = sess.get("log")
+                if log is not None:
+                    log.append(payload)
+                    if len(log) > _MAX_SESSION_LOG:
+                        del log[: len(log) - _MAX_SESSION_LOG]
+            except Exception:
+                pass
+
+
+def wire_device_events(serial: str, device=None) -> dict:
+    """Subscribe to spawn/child/crash/output signals (idempotent per serial).
+
+    Events are buffered for polling and also pushed into live session consoles
+    for the same device serial.
+    """
+    if serial in _wired_serials:
+        return {"ok": True, "wired": True, "already": True}
+    if device is None:
+        device = _frida_device(serial)
+    _device_refs[serial] = device  # keep alive for signal handlers
+
+    def on_spawn_added(spawn):
+        _append_device_event(serial, {"type": "spawn-added", **_spawn_public(spawn)})
+
+    def on_spawn_removed(spawn):
+        _append_device_event(serial, {"type": "spawn-removed", **_spawn_public(spawn)})
+
+    def on_child_added(child):
+        _append_device_event(serial, {"type": "child-added", **_child_public(child)})
+
+    def on_child_removed(child):
+        _append_device_event(serial, {"type": "child-removed", **_child_public(child)})
+
+    def on_process_crashed(crash):
+        _append_device_event(serial, {"type": "process-crashed", **_crash_public(crash)})
+
+    def on_output(pid, fd, data):
+        text = data.decode("utf-8", errors="replace") if isinstance(data, (bytes, bytearray)) else str(data)
+        _append_device_event(serial, {
+            "type": "output",
+            "pid": pid,
+            "fd": fd,
+            "data": text,
+        })
+
+    for signal, handler in (
+        ("spawn-added", on_spawn_added),
+        ("spawn-removed", on_spawn_removed),
+        ("child-added", on_child_added),
+        ("child-removed", on_child_removed),
+        ("process-crashed", on_process_crashed),
+        ("output", on_output),
+    ):
+        try:
+            device.on(signal, handler)
+        except Exception:
+            pass  # best-effort; some signals may be unavailable
+    _wired_serials.add(serial)
+    return {"ok": True, "wired": True, "already": False}
+
+
+def list_device_events(serial: str, after_ts: float | None = None, limit: int = 100) -> list[dict]:
+    """Return recent device events (spawn/child/crash/output), newest last.
+
+    If after_ts is set, only events with ts > after_ts are returned.
+    """
+    try:
+        limit = max(1, min(int(limit), _MAX_DEVICE_EVENT_LOG))
+    except (TypeError, ValueError):
+        limit = 100
+    wire_device_events(serial)
+    with _device_events_lock:
+        events = list(_device_events.get(serial, ()))
+    if after_ts is not None:
+        try:
+            after = float(after_ts)
+        except (TypeError, ValueError):
+            after = None
+        if after is not None:
+            events = [e for e in events if (e.get("ts") or 0) > after]
+    return events[-limit:]
+
+
+def input_to_process(serial: str, pid, data) -> dict:
+    """Feed bytes to a spawned process's stdin via device.input(pid, data).
+
+    `data` may be bytes, a UTF-8 string, or a hex string when encoding='hex' is
+    used by the caller (routes decode before calling).
+    """
+    device = _frida_device(serial)
+    value = _require_pid(pid)
+    if isinstance(data, str):
+        raw = data.encode("utf-8")
+    elif isinstance(data, (bytes, bytearray)):
+        raw = bytes(data)
+    else:
+        raise manager.AdbError("input data must be a string or bytes")
+    if not raw:
+        raise manager.AdbError("input data is empty")
+    if len(raw) > 64 * 1024:
+        raise manager.AdbError("input data is too large (max 64 KiB)")
+    try:
+        device.input(value, raw)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to send input to pid {value}: {exc}") from exc
+    return {"ok": True, "pid": value, "bytes": len(raw)}
+
+
+def _normalize_spawn_target(target: dict) -> dict:
+    """Validate optional spawn kwargs (argv/env/cwd/stdio) on a spawn target dict."""
+    out = dict(target)
+    if "argv" in out and out["argv"] is not None:
+        if not isinstance(out["argv"], (list, tuple)):
+            raise manager.AdbError("argv must be a list of strings")
+        out["argv"] = [str(a) for a in out["argv"]]
+    envp = out.get("envp") if out.get("envp") is not None else out.get("env")
+    if envp is not None:
+        if not isinstance(envp, dict):
+            raise manager.AdbError("env/envp must be an object of string values")
+        out["envp"] = {str(k): str(v) for k, v in envp.items()}
+        out.pop("env", None)
+    if out.get("cwd") is not None:
+        out["cwd"] = str(out["cwd"])
+    if out.get("stdio") is not None:
+        stdio = str(out["stdio"]).strip().lower()
+        if stdio not in _VALID_STDIO:
+            raise manager.AdbError("stdio must be 'inherit' or 'pipe'")
+        out["stdio"] = stdio
+    return out
+
+
+def _spawn_process(device, target: dict) -> int:
+    """Spawn a program with optional argv/envp/cwd/stdio from the target dict."""
+    program = str(target["spawn"])
+    kwargs = {}
+    if target.get("argv") is not None:
+        kwargs["argv"] = target["argv"]
+    if target.get("envp") is not None:
+        kwargs["envp"] = target["envp"]
+    if target.get("cwd") is not None:
+        kwargs["cwd"] = target["cwd"]
+    if target.get("stdio") is not None:
+        kwargs["stdio"] = target["stdio"]
+    try:
+        if kwargs:
+            return int(device.spawn(program, **kwargs))
+        return int(device.spawn([program]))
+    except TypeError:
+        # Older bindings: list form only (program + optional argv tail).
+        if kwargs.get("argv"):
+            return int(device.spawn([program, *kwargs["argv"]]))
+        return int(device.spawn([program]))
+    except manager.AdbError:
+        raise
+    except Exception as exc:
+        raise manager.AdbError(f"spawn failed: {exc}") from exc
 
 
 def list_pending_spawn(serial: str) -> list[dict]:
@@ -682,7 +888,15 @@ def _summarize_crash(crash) -> dict | None:
     }
 
 
-def _make_detach_handler(session_id: str, messages: "queue.Queue"):
+def _append_session_log(message_log: list | None, item: dict) -> None:
+    if message_log is None:
+        return
+    message_log.append(item)
+    if len(message_log) > _MAX_SESSION_LOG:
+        del message_log[: len(message_log) - _MAX_SESSION_LOG]
+
+
+def _make_detach_handler(session_id: str, messages: "queue.Queue", message_log: list | None = None):
     """Frida fires 'detached' with (reason[, crash]); surface it to the stream.
 
     Signature varies across frida versions (some omit crash), so accept *args.
@@ -698,7 +912,9 @@ def _make_detach_handler(session_id: str, messages: "queue.Queue"):
         payload = {"type": "detached", "reason": reason}
         if crash:
             payload["crash"] = crash
-        messages.put({"message": payload, "data": None})
+        item = {"message": payload, "data": None}
+        messages.put(item)
+        _append_session_log(message_log, item)
     return on_detached
 
 
@@ -750,10 +966,12 @@ def attach(
     script_source = inject_script_params(script_source, params)
     check_version_compatibility(serial)
     device = _frida_device(serial)
+    wire_device_events(serial, device=device)
     spawned_pid = None
     if isinstance(target, dict):
         if target.get("spawn"):
-            spawned_pid = device.spawn([str(target["spawn"])])
+            target = _normalize_spawn_target(target)
+            spawned_pid = _spawn_process(device, target)
             attach_target = spawned_pid
         else:
             attach_target = target.get("pid") or target.get("name")
@@ -774,13 +992,23 @@ def attach(
             raise manager.AdbError("this frida build does not support runtime selection") from None
         script = session.create_script(script_source)
     messages: queue.Queue = queue.Queue()
+    message_log: list = []
 
     def on_message(message, data):
-        messages.put({"message": message, "data": data.decode("utf-8", errors="replace") if data else None})
+        item = {
+            "message": message,
+            "data": data.decode("utf-8", errors="replace") if data else None,
+        }
+        if isinstance(data, (bytes, bytearray)) and data:
+            item["data_hex"] = bytes(data).hex()
+        messages.put(item)
+        _append_session_log(message_log, item)
 
     def on_log(level: str, text: str):
         # Structured console routing (info/warning/error) instead of opaque message events.
-        messages.put({"message": {"type": "log", "level": str(level or "info"), "payload": text}, "data": None})
+        item = {"message": {"type": "log", "level": str(level or "info"), "payload": text}, "data": None}
+        messages.put(item)
+        _append_session_log(message_log, item)
 
     script.on("message", on_message)
     try:
@@ -799,13 +1027,15 @@ def attach(
             "session": session,
             "script": script,
             "queue": messages,
+            "log": message_log,
             "created_at": time.time(),
             "detached": False,
             "detach_reason": None,
             "runtime": runtime,
+            "spawned_pid": spawned_pid,
         }
     try:
-        session.on("detached", _make_detach_handler(session_id, messages))
+        session.on("detached", _make_detach_handler(session_id, messages, message_log))
     except Exception:
         pass  # signal wiring is best-effort; the session still works without it
     return session_id
@@ -951,7 +1181,65 @@ def set_child_gating(session_id: str, enable: bool) -> dict:
         verb = "enable" if enable else "disable"
         raise manager.AdbError(f"failed to {verb} child gating: {exc}") from exc
     entry["child_gating"] = bool(enable)
+    if enable and entry.get("serial"):
+        wire_device_events(entry["serial"])
     return {"ok": True, "child_gating": bool(enable)}
+
+
+def export_session_messages(session_id: str, fmt: str = "json"):
+    """Export the buffered session message log as JSON (dict) or plain text.
+
+    Messages are accumulated from script output, logs, detach events, and
+    device-level events fan-out while the session is live. Detached sessions
+    still export until the session is dropped from the registry.
+    """
+    fmt = (fmt or "json").strip().lower()
+    if fmt not in ("json", "text"):
+        raise manager.AdbError("format must be 'json' or 'text'")
+    with _sessions_lock:
+        entry = _sessions.get(session_id)
+        if not entry:
+            raise manager.AdbError("session not found")
+        log = list(entry.get("log") or [])
+        meta = {
+            "session_id": session_id,
+            "serial": entry.get("serial"),
+            "target": entry.get("target"),
+            "detached": entry.get("detached", False),
+            "detach_reason": entry.get("detach_reason"),
+            "runtime": entry.get("runtime"),
+            "count": len(log),
+        }
+    if fmt == "text":
+        lines = []
+        for item in log:
+            msg = item.get("message") or {}
+            data = item.get("data")
+            mtype = msg.get("type") or "message"
+            if mtype == "log":
+                lines.append(f"{msg.get('level') or 'info'}: {msg.get('payload') if msg.get('payload') is not None else ''}")
+            elif mtype == "send":
+                lines.append(f"send: {json.dumps(msg.get('payload'), ensure_ascii=False, default=str)}")
+            elif mtype == "error":
+                lines.append(f"error: {msg.get('description') or json.dumps(msg, ensure_ascii=False, default=str)}")
+            elif mtype == "detached":
+                lines.append(f"detached: {msg.get('reason') or 'unknown'}")
+            elif mtype == "process-crashed":
+                lines.append(
+                    f"crash: pid={msg.get('pid')} {msg.get('process_name') or ''} — {msg.get('summary') or ''}".strip()
+                )
+            elif mtype == "output":
+                lines.append(f"stdout/err[{msg.get('fd')}] pid={msg.get('pid')}: {msg.get('data') or ''}")
+            elif mtype in ("spawn-added", "spawn-removed", "child-added", "child-removed"):
+                lines.append(f"{mtype}: pid={msg.get('pid')} {msg.get('identifier') or msg.get('path') or ''}".strip())
+            else:
+                lines.append(f"{mtype}: {json.dumps(msg, ensure_ascii=False, default=str)}")
+            if data and mtype not in ("output",):
+                lines.append(f"  data: {data}")
+            if item.get("data_hex"):
+                lines.append(f"  data_hex: {item['data_hex']}")
+        return {"ok": True, "format": "text", "text": "\n".join(lines), **meta}
+    return {"ok": True, "format": "json", "messages": _json_safe(log), **meta}
 
 
 def eternalize_session(session_id: str) -> dict:

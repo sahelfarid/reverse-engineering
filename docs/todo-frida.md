@@ -14,14 +14,16 @@ PID/name, spawn+attach+resume, per-session message queue, one-way SSE stream wit
 heartbeat, fixed-window drain, detach, script store CRUD with three read-only templates,
 name/size validation, and audit logging.
 
-Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#13** version-match
-guard, **#25/#27** installed-app enumeration + frontmost shortcut, **#31/#32/#37** spawn
-gating + pending-spawn queue + kill, **#39/#42** detach-reason + session state polling,
-**#47/#48** RPC exports + two-way `script.post`, **#49–#51** structured logs + QJS/V8
-runtime + eternalize, **#58** parametrized scripts, **#83/#84** full SSL-pinning and
-root-detection agents.
-Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
-`PortalService`, `FileMonitor`, snapshots, etc.
+Installed engine: **frida 17.15.3**. Backlog items wired up so far: **#8** system
+parameters, **#13** version-match guard, **#25/#27** installed-app enumeration + frontmost
+shortcut, **#28** rich process query, **#29** spawn argv/env/cwd, **#31–#34** spawn/child
+gating + pending queues, **#35/#36** device signal stream + process-crash, **#37** kill,
+**#38** stdin input, **#39/#42** detach-reason + session state polling, **#47/#48** RPC
+exports + two-way `script.post`, **#49–#51** structured logs + QJS/V8 runtime + eternalize,
+**#57** interrupt/terminate, **#58** parametrized scripts, **#83/#84** full SSL-pinning and
+root-detection agents, **#98** console export.
+Still not wired: remote devices, `Compiler`, `PackageManager`, `PortalService`,
+`FileMonitor`, snapshots, etc.
 
 **Legend:** ⬜ Pending implementation · ✅ Implemented
 
@@ -69,16 +71,16 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | 26 | App icons & metadata | Show app icons and running/backgrounded state in the picker. | `enumerate_applications(scope='full')` | ⬜ Pending implementation |
 | 27 | Frontmost app shortcut | One-click attach to the currently foregrounded app. | `device.get_frontmost_application()` | ✅ Implemented |
 | 28 | Rich process query | Fetch a single process with metadata (path, parameters). | `device.get_process(name, scope=...)` | ✅ Implemented |
-| 29 | Spawn with argv/env/cwd | Spawn with custom arguments, environment, and working directory. | `device.spawn(program, argv=, envp=, cwd=)` | ⬜ Pending implementation |
-| 30 | Spawn stdio capture | Capture child stdout/stderr into the console. | `spawn(..., stdio='pipe')` + `device.on('output')` | ⬜ Pending implementation |
+| 29 | Spawn with argv/env/cwd | Spawn with custom arguments, environment, and working directory. | `device.spawn(program, argv=, envp=, cwd=)` | ✅ Implemented |
+| 30 | Spawn stdio capture | Capture child stdout/stderr into the console. | `spawn(..., stdio='pipe')` + `device.on('output')` | ⬜ Pending implementation (partial: `output` signal + `stdio=pipe` spawn option wired) |
 | 31 | Spawn gating | Auto-suspend **every** new process to hook it before it runs. | `device.enable_spawn_gating()` + `'spawn-added'` | ✅ Implemented |
 | 32 | Pending-spawn queue UI | Show/resume/kill spawn-gated processes awaiting decision. | `device.enumerate_pending_spawn()` | ✅ Implemented |
 | 33 | Child gating (follow forks) | Follow `fork()`/`exec()` children so subprocesses stay instrumented. | `session.enable_child_gating()` + `'child-added'` | ✅ Implemented |
 | 34 | Pending-children queue UI | Show/resume/kill child-gated processes. | `device.enumerate_pending_children()` | ✅ Implemented |
-| 35 | Child/spawn signal stream | Surface `child-added/removed`, `spawn-added/removed` events live. | `device.on(...)` signals | ⬜ Pending implementation |
-| 36 | Process-crash reporting | Report crashes with signal + native report/backtrace. | `device.on('process-crashed')` | ⬜ Pending implementation |
+| 35 | Child/spawn signal stream | Surface `child-added/removed`, `spawn-added/removed` events live. | `device.on(...)` signals | ✅ Implemented |
+| 36 | Process-crash reporting | Report crashes with signal + native report/backtrace. | `device.on('process-crashed')` | ✅ Implemented |
 | 37 | Kill by PID/name | Kill a target process from the process table. | `device.kill(pid)` | ✅ Implemented |
-| 38 | Send input to stdin | Feed bytes to a spawned target's stdin. | `device.input(pid, data)` | ⬜ Pending implementation |
+| 38 | Send input to stdin | Feed bytes to a spawned target's stdin. | `device.input(pid, data)` | ✅ Implemented |
 
 ## D. Session Lifecycle
 
@@ -173,7 +175,7 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 | # | Feature | Details | Frida API / approach | Status |
 |---|---------|---------|----------------------|--------|
 | 97 | Persistent message log | Persist per-session messages to disk and reload on reconnect. | Append queue drains to a log file | ⬜ Pending implementation |
-| 98 | Console export / download | Export session output as text/JSON; download binary `data` payloads. | Buffer + download endpoint | ⬜ Pending implementation |
+| 98 | Console export / download | Export session output as text/JSON; download binary `data` payloads. | Buffer + download endpoint | ✅ Implemented |
 | 99 | Console filter/search + pretty-print | Filter/search lines; pretty-render JSON payloads and `hexdump` blocks. | Frontend enhancement | ⬜ Pending implementation |
 | 100 | Package manager integration | Install/query packages Frida-side for provisioning flows. | `frida.PackageManager` | ⬜ Pending implementation |
 
@@ -183,14 +185,14 @@ Still not wired: remote devices, child gating, `Compiler`, `PackageManager`,
 
 | Category | Items | Done | Remaining | Status |
 |---|---|---|---|---|
-| A. Device & Connection Management | 1–12 | 0 | 12 | ⬜ Pending implementation |
+| A. Device & Connection Management | 1–12 | 1 (#8) | 11 | ⬜ Partial |
 | B. frida-server & Gadget Provisioning | 13–24 | 1 (#13) | 11 | ⬜ Partial |
-| C. Process, Application & Spawn Control | 25–38 | 5 (#25, #27, #31, #32, #37) | 9 | ⬜ Partial |
+| C. Process, Application & Spawn Control | 25–38 | 12 (#25, #27–#29, #31–#38) | 2 | ⬜ Partial |
 | D. Session Lifecycle | 39–46 | 2 (#39, #42) | 6 | ⬜ Partial |
-| E. Script Engine & RPC | 47–58 | 6 (#47–#51, #58) | 6 | ⬜ Partial |
+| E. Script Engine & RPC | 47–58 | 7 (#47–#51, #57, #58) | 5 | ⬜ Partial |
 | F. Native Instrumentation Primitives | 59–72 | 0 | 14 | ⬜ Pending implementation |
 | G. Java / Android Runtime Instrumentation | 73–82 | 0 | 10 | ⬜ Pending implementation |
 | H. Ready-Made Bypass & Monitoring Modules | 83–92 | 2 (#83, #84) | 8 | ⬜ Partial |
 | I. Tooling / CLI Parity | 93–96 | 0 | 4 | ⬜ Pending implementation |
-| J. Console, Output & UX | 97–100 | 0 | 4 | ⬜ Pending implementation |
-| **Total** | **100** | **16** | **84** | **16 ✅ / 84 ⬜** |
+| J. Console, Output & UX | 97–100 | 1 (#98) | 3 | ⬜ Partial |
+| **Total** | **100** | **26** | **74** | **26 ✅ / 74 ⬜** |

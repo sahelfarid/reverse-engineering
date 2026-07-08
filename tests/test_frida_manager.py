@@ -790,15 +790,20 @@ def test_list_pending_children_wraps_errors():
 
 def test_set_child_gating_enable_and_disable():
     frida_manager._sessions.clear()
+    _clear_device_event_state()
     session = MagicMock()
     session.is_detached.return_value = False
-    frida_manager._sessions["s"] = {"detached": False, "session": session}
-    assert frida_manager.set_child_gating("s", True) == {"ok": True, "child_gating": True}
-    assert frida_manager._sessions["s"]["child_gating"] is True
-    session.enable_child_gating.assert_called_once_with()
-    assert frida_manager.set_child_gating("s", False) == {"ok": True, "child_gating": False}
-    session.disable_child_gating.assert_called_once_with()
+    device = MagicMock()
+    frida_manager._sessions["s"] = {"detached": False, "session": session, "serial": "s1"}
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        assert frida_manager.set_child_gating("s", True) == {"ok": True, "child_gating": True}
+        assert frida_manager._sessions["s"]["child_gating"] is True
+        session.enable_child_gating.assert_called_once_with()
+        assert frida_manager.set_child_gating("s", False) == {"ok": True, "child_gating": False}
+        session.disable_child_gating.assert_called_once_with()
+    assert "s1" in frida_manager._wired_serials
     frida_manager._sessions.clear()
+    _clear_device_event_state()
 
 
 def test_set_child_gating_rejects_detached_session():
@@ -890,6 +895,212 @@ def test_get_process_missing_query_and_unknown_pid():
             frida_manager.get_process("s1", "")
         with pytest.raises(manager.AdbError, match="no process with pid 99"):
             frida_manager.get_process("s1", "99")
+
+
+def _clear_device_event_state():
+    frida_manager._wired_serials.clear()
+    frida_manager._device_refs.clear()
+    frida_manager._device_events.clear()
+
+
+def test_spawn_process_passes_argv_env_cwd_stdio():
+    device = MagicMock()
+    device.spawn.return_value = 4242
+    target = {
+        "spawn": "com.example",
+        "argv": ["--debug"],
+        "envp": {"A": "1"},
+        "cwd": "/data/local/tmp",
+        "stdio": "pipe",
+    }
+    pid = frida_manager._spawn_process(device, frida_manager._normalize_spawn_target(target))
+    assert pid == 4242
+    device.spawn.assert_called_once_with(
+        "com.example",
+        argv=["--debug"],
+        envp={"A": "1"},
+        cwd="/data/local/tmp",
+        stdio="pipe",
+    )
+
+
+def test_normalize_spawn_target_rejects_bad_argv_env_stdio():
+    with pytest.raises(manager.AdbError, match="argv must be a list"):
+        frida_manager._normalize_spawn_target({"spawn": "x", "argv": "nope"})
+    with pytest.raises(manager.AdbError, match="env/envp must be an object"):
+        frida_manager._normalize_spawn_target({"spawn": "x", "env": ["a"]})
+    with pytest.raises(manager.AdbError, match="stdio must be"):
+        frida_manager._normalize_spawn_target({"spawn": "x", "stdio": "socket"})
+
+
+def test_attach_spawn_with_options(monkeypatch):
+    frida_manager._sessions.clear()
+    _clear_device_event_state()
+    spawned = {}
+
+    class FakeScript:
+        def on(self, event, handler):
+            pass
+
+        def set_log_handler(self, handler):
+            pass
+
+        def load(self):
+            pass
+
+        def unload(self):
+            pass
+
+    class FakeSession:
+        def create_script(self, source, name=None, snapshot=None, runtime=None):
+            return FakeScript()
+
+        def on(self, event, handler):
+            pass
+
+        def detach(self):
+            pass
+
+        def is_detached(self):
+            return False
+
+    class FakeDevice:
+        id = "serial-1"
+
+        def __init__(self):
+            self.session = FakeSession()
+            self.handlers = {}
+
+        def on(self, signal, handler):
+            self.handlers[signal] = handler
+
+        def spawn(self, program, argv=None, envp=None, env=None, cwd=None, stdio=None, **kwargs):
+            spawned["program"] = program
+            spawned["argv"] = argv
+            spawned["envp"] = envp
+            spawned["cwd"] = cwd
+            spawned["stdio"] = stdio
+            return 777
+
+        def resume(self, pid):
+            spawned["resumed"] = pid
+
+        def attach(self, target):
+            spawned["attached"] = target
+            return self.session
+
+    fake_device = FakeDevice()
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_device_manager=lambda: types.SimpleNamespace(enumerate_devices=lambda: [fake_device]),
+        get_usb_device=lambda timeout=5: fake_device,
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager, "check_version_compatibility", lambda serial: None)
+
+    sid = frida_manager.attach(
+        "serial-1",
+        {"spawn": "com.example", "argv": ["--x"], "env": {"K": "V"}, "cwd": "/tmp", "stdio": "pipe"},
+        "console.log(1);",
+    )
+    assert spawned["program"] == "com.example"
+    assert spawned["argv"] == ["--x"]
+    assert spawned["envp"] == {"K": "V"}
+    assert spawned["cwd"] == "/tmp"
+    assert spawned["stdio"] == "pipe"
+    assert spawned["attached"] == 777
+    assert spawned["resumed"] == 777
+    assert frida_manager._sessions[sid]["spawned_pid"] == 777
+    frida_manager.detach(sid)
+
+
+def test_input_to_process_sends_bytes():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.input_to_process("s1", 42, "hello")
+    assert result == {"ok": True, "pid": 42, "bytes": 5}
+    device.input.assert_called_once_with(42, b"hello")
+
+
+def test_input_to_process_rejects_empty_and_invalid_pid():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        with pytest.raises(manager.AdbError, match="empty"):
+            frida_manager.input_to_process("s1", 1, "")
+        with pytest.raises(manager.AdbError, match="invalid pid"):
+            frida_manager.input_to_process("s1", 0, "x")
+
+
+def test_wire_device_events_records_spawn_child_crash_and_fans_out():
+    frida_manager._sessions.clear()
+    _clear_device_event_state()
+    device = MagicMock()
+    handlers = {}
+    device.on.side_effect = lambda sig, h: handlers.__setitem__(sig, h)
+
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        first = frida_manager.wire_device_events("s1")
+        second = frida_manager.wire_device_events("s1")
+    assert first == {"ok": True, "wired": True, "already": False}
+    assert second["already"] is True
+    assert "spawn-added" in handlers and "process-crashed" in handlers
+
+    # Live session on same serial should receive fan-out events.
+    import queue as queue_mod
+    log = []
+    q = queue_mod.Queue()
+    frida_manager._sessions["live"] = {
+        "serial": "s1",
+        "detached": False,
+        "queue": q,
+        "log": log,
+        "target": "1",
+        "session": MagicMock(),
+        "script": MagicMock(),
+        "created_at": 0,
+    }
+    spawn = types.SimpleNamespace(pid=9, identifier="com.x")
+    handlers["spawn-added"](spawn)
+    crash = types.SimpleNamespace(pid=9, process_name="com.x", summary="SIGSEGV", report="bt")
+    handlers["process-crashed"](crash)
+    child = types.SimpleNamespace(pid=10, parent_pid=9, identifier="com.x", path="/system/bin/x")
+    handlers["child-added"](child)
+
+    events = frida_manager.list_device_events("s1", after_ts=0)
+    types_seen = {e["type"] for e in events}
+    assert types_seen >= {"spawn-added", "process-crashed", "child-added"}
+    assert q.qsize() == 3
+    assert len(log) == 3
+    frida_manager._sessions.clear()
+    _clear_device_event_state()
+
+
+def test_export_session_messages_json_and_text():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {
+        "serial": "dev",
+        "target": "1",
+        "detached": False,
+        "detach_reason": None,
+        "runtime": "qjs",
+        "log": [
+            {"message": {"type": "log", "level": "info", "payload": "hi"}, "data": None},
+            {"message": {"type": "send", "payload": {"a": 1}}, "data": None},
+            {"message": {"type": "process-crashed", "pid": 3, "process_name": "app", "summary": "boom"}, "data": None},
+        ],
+    }
+    js = frida_manager.export_session_messages("s", "json")
+    assert js["ok"] is True and js["count"] == 3 and len(js["messages"]) == 3
+    txt = frida_manager.export_session_messages("s", "text")
+    assert txt["format"] == "text"
+    assert "info: hi" in txt["text"]
+    assert "send:" in txt["text"]
+    assert "crash:" in txt["text"]
+    with pytest.raises(manager.AdbError, match="session not found"):
+        frida_manager.export_session_messages("missing", "json")
+    with pytest.raises(manager.AdbError, match="format must be"):
+        frida_manager.export_session_messages("s", "xml")
+    frida_manager._sessions.clear()
 
 
 def test_list_applications_sorts_running_first_then_name():

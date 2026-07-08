@@ -150,6 +150,57 @@ def kill_pid(serial, pid):
     return jsonify(result)
 
 
+@bp.post("/api/devices/<serial>/frida/input/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def input_to_process(serial, pid):
+    """Feed bytes to a spawned process's stdin (device.input)."""
+    d = request.get_json(silent=True) or {}
+    if "data" not in d:
+        return jsonify({"ok": False, "error": "missing_data"}), 400
+    encoding = str(d.get("encoding") or "utf8").strip().lower()
+    raw = d.get("data")
+    if encoding == "hex":
+        try:
+            data = bytes.fromhex(str(raw))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "data must be a hex string"}), 400
+    else:
+        data = raw if isinstance(raw, (bytes, bytearray)) else str(raw)
+    result, err = _wrap(frida_manager.input_to_process, serial, pid, data)
+    if err:
+        return err
+    auth.audit_log("frida_input", {"serial": serial, "pid": pid, "bytes": result.get("bytes")})
+    return jsonify(result)
+
+
+@bp.get("/api/devices/<serial>/frida/events")
+@auth.login_required
+def device_events(serial):
+    """Recent spawn/child/crash/output device events (after_ts for incremental poll)."""
+    after = request.args.get("after")
+    after_ts = None
+    if after not in (None, ""):
+        try:
+            after_ts = float(after)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "after must be a number (unix timestamp)"}), 400
+    limit = request.args.get("limit", 100)
+    result, err = _wrap(frida_manager.list_device_events, serial, after_ts, limit)
+    return err or jsonify({"ok": True, "events": result})
+
+
+@bp.post("/api/devices/<serial>/frida/events/wire")
+@auth.login_required
+@auth.csrf_protect
+def wire_device_events(serial):
+    result, err = _wrap(frida_manager.wire_device_events, serial)
+    if err:
+        return err
+    auth.audit_log("frida_events_wire", {"serial": serial})
+    return jsonify(result)
+
+
 @bp.post("/api/devices/<serial>/frida/attach")
 @auth.login_required
 @auth.csrf_protect
@@ -167,6 +218,12 @@ def attach(serial):
     target = d.get("target")
     if d.get("spawn"):
         target = {"spawn": d.get("spawn")}
+        opts = d.get("spawn_options") if isinstance(d.get("spawn_options"), dict) else {}
+        for key in ("argv", "env", "envp", "cwd", "stdio"):
+            if key in d:
+                target[key] = d[key]
+            elif key in opts:
+                target[key] = opts[key]
     runtime = d.get("runtime")
     params = d.get("params")
     if params is not None and not isinstance(params, dict):
@@ -181,6 +238,9 @@ def attach(serial):
         "script_sha256": frida_manager.script_hash(source),
         "runtime": runtime,
         "has_params": bool(params),
+        "has_spawn_options": bool(
+            isinstance(target, dict) and any(k in target for k in ("argv", "env", "envp", "cwd", "stdio"))
+        ),
     })
     return jsonify({"ok": True, "session_id": session_id})
 
@@ -309,6 +369,26 @@ def detach(session_id):
     if err:
         return err
     auth.audit_log("frida_detach", {"session_id": session_id})
+    return jsonify(result)
+
+
+@bp.get("/api/frida/sessions/<session_id>/export")
+@auth.login_required
+def export_session(session_id):
+    """Download buffered session console output as JSON or plain text."""
+    fmt = request.args.get("format", "json")
+    result, err = _wrap(frida_manager.export_session_messages, session_id, fmt)
+    if err:
+        return err
+    if result.get("format") == "text":
+        text = result.get("text") or ""
+        return Response(
+            text,
+            mimetype="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="frida-session-{session_id}.txt"',
+            },
+        )
     return jsonify(result)
 
 

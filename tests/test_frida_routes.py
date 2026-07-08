@@ -415,6 +415,92 @@ def test_interrupt_requires_csrf(client):
     assert res.status_code == 403
 
 
+def test_attach_passes_spawn_options(auth_client):
+    with patch("routes.frida.frida_manager.attach", return_value="sess-spawn") as mock_attach, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/attach", {
+            "script_source": "console.log(1);",
+            "spawn": "com.example",
+            "argv": ["--debug"],
+            "env": {"A": "1"},
+            "cwd": "/data/local/tmp",
+            "stdio": "pipe",
+        })
+    assert res.status_code == 200
+    target = mock_attach.call_args[0][1]
+    assert target == {
+        "spawn": "com.example",
+        "argv": ["--debug"],
+        "env": {"A": "1"},
+        "cwd": "/data/local/tmp",
+        "stdio": "pipe",
+    }
+    assert mock_audit.call_args[0][1]["has_spawn_options"] is True
+
+
+def test_input_to_process_utf8_and_audit(auth_client):
+    with patch("routes.frida.frida_manager.input_to_process",
+               return_value={"ok": True, "pid": 5, "bytes": 3}) as mock_in, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/input/5", {"data": "abc"})
+    assert res.status_code == 200
+    mock_in.assert_called_once_with("s1", 5, "abc")
+    mock_audit.assert_called_once_with("frida_input", {"serial": "s1", "pid": 5, "bytes": 3})
+
+
+def test_input_to_process_hex_encoding(auth_client):
+    with patch("routes.frida.frida_manager.input_to_process",
+               return_value={"ok": True, "pid": 5, "bytes": 2}) as mock_in, \
+         patch("routes.frida.auth.audit_log"):
+        res = _post(auth_client, "/api/devices/s1/frida/input/5", {"data": "6869", "encoding": "hex"})
+    assert res.status_code == 200
+    mock_in.assert_called_once_with("s1", 5, b"hi")
+
+
+def test_input_to_process_missing_data(auth_client):
+    res = _post(auth_client, "/api/devices/s1/frida/input/5", {})
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "missing_data"
+
+
+def test_device_events_success(auth_client):
+    events = [{"type": "spawn-added", "pid": 1, "ts": 1.0}]
+    with patch("routes.frida.frida_manager.list_device_events", return_value=events) as mock_list:
+        res = auth_client.get("/api/devices/s1/frida/events?after=0.5&limit=10")
+    assert res.status_code == 200
+    assert res.get_json()["events"] == events
+    mock_list.assert_called_once_with("s1", 0.5, "10")
+
+
+def test_wire_device_events_success(auth_client):
+    with patch("routes.frida.frida_manager.wire_device_events",
+               return_value={"ok": True, "wired": True, "already": False}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/events/wire")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_events_wire", {"serial": "s1"})
+
+
+def test_export_session_json(auth_client):
+    payload = {"ok": True, "format": "json", "messages": [], "count": 0, "session_id": "sess-1"}
+    with patch("routes.frida.frida_manager.export_session_messages", return_value=payload):
+        res = auth_client.get("/api/frida/sessions/sess-1/export?format=json")
+    assert res.status_code == 200
+    assert res.get_json()["format"] == "json"
+
+
+def test_export_session_text_attachment(auth_client):
+    payload = {
+        "ok": True, "format": "text", "text": "info: hi\n", "count": 1, "session_id": "sess-1",
+    }
+    with patch("routes.frida.frida_manager.export_session_messages", return_value=payload):
+        res = auth_client.get("/api/frida/sessions/sess-1/export?format=text")
+    assert res.status_code == 200
+    assert res.mimetype.startswith("text/plain")
+    assert b"info: hi" in res.data
+    assert "frida-session-sess-1.txt" in res.headers.get("Content-Disposition", "")
+
+
 def test_detach_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.detach", return_value={"ok": True, "detached": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:

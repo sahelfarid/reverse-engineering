@@ -41,6 +41,8 @@ function renderFridaTab() {
       <section class="panel-section subnav-pinned">
         <div class="section-head">
           <div><h3>Live console</h3></div>
+          <button id="frida-export-txt-btn" title="Download console log as text">Export .txt</button>
+          <button id="frida-export-json-btn" title="Download console log as JSON">Export .json</button>
           <button id="frida-interrupt-btn" disabled title="Interrupt the script's current execution (it can continue)">Interrupt</button>
           <button id="frida-terminate-btn" disabled title="Force-terminate a runaway script and drop the session">Terminate</button>
           <button id="frida-eternalize-btn" disabled title="Leave the script running after disconnect (fire-and-forget)">Eternalize</button>
@@ -74,11 +76,14 @@ function renderFridaTab() {
   document.getElementById('frida-childgate-off-btn').addEventListener('click', () => setFridaChildGating(false));
   document.getElementById('frida-interrupt-btn').addEventListener('click', interruptFridaScript);
   document.getElementById('frida-terminate-btn').addEventListener('click', terminateFridaScript);
+  document.getElementById('frida-export-txt-btn').addEventListener('click', () => exportFridaConsole('text'));
+  document.getElementById('frida-export-json-btn').addEventListener('click', () => exportFridaConsole('json'));
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
     { key: 'script', label: 'Script', render: (body) => renderFridaScriptView(body, serial) },
   ]);
+  startFridaDeviceEventPoll(serial);
 }
 
 function renderFridaStatusView(body, serial) {
@@ -153,7 +158,7 @@ function renderFridaTargetView(body, serial) {
         </table>
       </div>
       <div class="section-head" style="margin-top:14px;">
-        <div><h3>Pending children</h3><p class="section-desc">Children suspended by child gating (enable it from the Live console after attaching).</p></div>
+        <div><h3>Pending children</h3><p class="section-desc">Children suspended by child gating (enable it from the Live console after attaching). Live spawn/child/crash events auto-refresh these tables.</p></div>
         <button id="frida-pending-children-refresh-btn">Refresh children</button>
       </div>
       <div class="table-wrap auto-height">
@@ -161,6 +166,18 @@ function renderFridaTargetView(body, serial) {
           <thead><tr><th>PID</th><th>Parent</th><th>Identifier / path</th><th>Action</th></tr></thead>
           <tbody id="frida-pending-children-body"><tr><td colspan="4" class="muted">No pending children.</td></tr></tbody>
         </table>
+      </div>
+      <div class="section-head" style="margin-top:14px;">
+        <div><h3>Stdin input</h3><p class="section-desc">Send bytes to a spawned process with <code>stdio=pipe</code> (device.input).</p></div>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="frida-stdin-pid" placeholder="PID" style="width:100px;" title="Process PID (defaults to selected)">
+        <input type="text" id="frida-stdin-data" placeholder="Text to send (or hex if encoding=hex)" style="flex:1; min-width:180px;">
+        <select id="frida-stdin-encoding" title="Encoding">
+          <option value="utf8">utf8</option>
+          <option value="hex">hex</option>
+        </select>
+        <button id="frida-stdin-send-btn">Send stdin</button>
       </div>
     </section>`;
   document.getElementById('frida-mode-processes').addEventListener('click', () => setFridaTargetMode(serial, 'processes'));
@@ -172,6 +189,11 @@ function renderFridaTargetView(body, serial) {
   document.getElementById('frida-gating-disable-btn').addEventListener('click', () => setFridaSpawnGating(serial, false));
   document.getElementById('frida-pending-refresh-btn').addEventListener('click', () => loadFridaPendingSpawn(serial));
   document.getElementById('frida-pending-children-refresh-btn').addEventListener('click', () => loadFridaPendingChildren(serial));
+  document.getElementById('frida-stdin-send-btn').addEventListener('click', () => sendFridaStdin(serial));
+  if (FRIDA_SELECTED_PID) {
+    const pidEl = document.getElementById('frida-stdin-pid');
+    if (pidEl && !pidEl.value) pidEl.value = String(FRIDA_SELECTED_PID);
+  }
   reloadFridaTarget(serial);
 }
 
@@ -294,6 +316,19 @@ function renderFridaScriptView(body, serial) {
         <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
         <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
         <button id="frida-spawn-btn">Spawn + attach</button>
+      </div>
+      <div class="section-head" style="margin-top:10px;">
+        <div><h3>Spawn options</h3><p class="section-desc">Optional argv / env / cwd / stdio for device.spawn (used with Spawn + attach).</p></div>
+      </div>
+      <div class="toolbar-row">
+        <input type="text" id="frida-spawn-argv" placeholder='argv JSON, e.g. ["--flag"]' style="flex:1; min-width:160px;" title="Extra argv list (JSON array)">
+        <input type="text" id="frida-spawn-env" placeholder='env JSON, e.g. {"DEBUG":"1"}' style="flex:1; min-width:160px;" title="Environment object (JSON)">
+        <input type="text" id="frida-spawn-cwd" placeholder="cwd" style="width:140px;" title="Working directory">
+        <select id="frida-spawn-stdio" title="stdio mode">
+          <option value="">stdio default</option>
+          <option value="inherit">inherit</option>
+          <option value="pipe">pipe</option>
+        </select>
       </div>
     </section>`;
   document.getElementById('frida-load-script-btn').addEventListener('click', loadSelectedFridaScript);
@@ -557,6 +592,28 @@ async function attachFrida(serial, spawn = false) {
     const pkg = document.getElementById('frida-spawn-package').value.trim();
     if (!pkg) { toast('Enter a package name to spawn', 'error'); return; }
     body.spawn = pkg;
+    const argvText = (document.getElementById('frida-spawn-argv')?.value || '').trim();
+    if (argvText) {
+      try {
+        const argv = JSON.parse(argvText);
+        if (!Array.isArray(argv)) { toast('argv must be a JSON array', 'error'); return; }
+        body.argv = argv;
+      } catch (e) { toast('argv must be valid JSON', 'error'); return; }
+    }
+    const envText = (document.getElementById('frida-spawn-env')?.value || '').trim();
+    if (envText) {
+      try {
+        const env = JSON.parse(envText);
+        if (!env || typeof env !== 'object' || Array.isArray(env)) {
+          toast('env must be a JSON object', 'error'); return;
+        }
+        body.env = env;
+      } catch (e) { toast('env must be valid JSON', 'error'); return; }
+    }
+    const cwd = (document.getElementById('frida-spawn-cwd')?.value || '').trim();
+    if (cwd) body.cwd = cwd;
+    const stdio = document.getElementById('frida-spawn-stdio')?.value || '';
+    if (stdio) body.stdio = stdio;
   } else {
     if (!FRIDA_SELECTED_PID) { toast('Select a running process on the Target tab first', 'error'); return; }
     body.target = FRIDA_SELECTED_PID;
@@ -577,10 +634,12 @@ async function attachFrida(serial, spawn = false) {
   const notes = [];
   if (runtime) notes.push(`runtime=${runtime}`);
   if (body.params) notes.push('params');
+  if (body.argv || body.env || body.cwd || body.stdio) notes.push('spawn-options');
   const note = notes.length ? ` (${notes.join(', ')})` : '';
   setFridaConsole(`Attached session ${fridaSessionId}${note}`);
   startFridaStream(fridaSessionId);
   startFridaSessionPoll(fridaSessionId);
+  startFridaDeviceEventPoll(serial);
 }
 
 function clearFridaSessionUi() {
@@ -728,9 +787,35 @@ function startFridaStream(sessionId) {
     const msg = entry.message || {};
     if (msg.type === 'heartbeat') return;
     if (msg.type === 'detached') {
-      const crash = msg.crash ? ` (crash: ${escapeHtml(msg.crash.summary || msg.crash.process_name || '')})` : '';
+      const crash = msg.crash ? ` (crash: ${msg.crash.summary || msg.crash.process_name || ''})` : '';
       setFridaConsole(`session detached: ${msg.reason || 'unknown reason'}${crash}`, true, 'error');
       clearFridaSessionUi();
+      return;
+    }
+    if (msg.type === 'process-crashed') {
+      setFridaConsole(
+        `crash: pid=${msg.pid ?? '?'} ${msg.process_name || ''} — ${msg.summary || 'process crashed'}`.trim(),
+        true,
+        'error',
+      );
+      return;
+    }
+    if (msg.type === 'output') {
+      setFridaConsole(`stdio[${msg.fd}] pid=${msg.pid}: ${msg.data || ''}`, true, 'info');
+      return;
+    }
+    if (msg.type === 'spawn-added' || msg.type === 'spawn-removed'
+        || msg.type === 'child-added' || msg.type === 'child-removed') {
+      setFridaConsole(
+        `${msg.type}: pid=${msg.pid ?? '?'} ${msg.identifier || msg.path || ''}`.trim(),
+        true,
+        'message',
+      );
+      const serial = getSelectedSerial();
+      if (serial) {
+        if (msg.type.startsWith('spawn')) loadFridaPendingSpawn(serial);
+        if (msg.type.startsWith('child')) loadFridaPendingChildren(serial);
+      }
       return;
     }
     if (msg.type === 'log') {
@@ -741,6 +826,136 @@ function startFridaStream(sessionId) {
     else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
     else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
   };
+}
+
+let fridaDeviceEventTimer = null;
+let fridaDeviceEventAfter = 0;
+let fridaDeviceEventSerial = null;
+
+function startFridaDeviceEventPoll(serial) {
+  if (!serial) return;
+  if (fridaDeviceEventTimer && fridaDeviceEventSerial === serial) return;
+  if (fridaDeviceEventTimer) clearInterval(fridaDeviceEventTimer);
+  fridaDeviceEventSerial = serial;
+  fridaDeviceEventAfter = 0;
+  // Wire handlers once (idempotent on server).
+  apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/events/wire`, { method: 'POST' }).catch(() => {});
+  fridaDeviceEventTimer = setInterval(() => pollFridaDeviceEvents(serial), 2500);
+  pollFridaDeviceEvents(serial);
+}
+
+async function pollFridaDeviceEvents(serial) {
+  if (!serial || fridaDeviceEventSerial !== serial) return;
+  try {
+    const res = await apiFetch(
+      `/api/devices/${encodeURIComponent(serial)}/frida/events?after=${encodeURIComponent(fridaDeviceEventAfter)}&limit=50`,
+    );
+    const data = await res.json();
+    if (!data.ok) return;
+    const events = data.events || [];
+    let sawSpawn = false;
+    let sawChild = false;
+    for (const ev of events) {
+      if (ev.ts && ev.ts > fridaDeviceEventAfter) fridaDeviceEventAfter = ev.ts;
+      if (ev.type && String(ev.type).startsWith('spawn')) sawSpawn = true;
+      if (ev.type && String(ev.type).startsWith('child')) sawChild = true;
+      // Live sessions already receive these via SSE fan-out — avoid double-printing.
+      if (fridaSessionId) continue;
+      if (ev.type === 'process-crashed') {
+        setFridaConsole(
+          `crash: pid=${ev.pid ?? '?'} ${ev.process_name || ''} — ${ev.summary || 'process crashed'}`.trim(),
+          true,
+          'error',
+        );
+      } else if (ev.type === 'output') {
+        setFridaConsole(`stdio[${ev.fd}] pid=${ev.pid}: ${ev.data || ''}`, true, 'info');
+      } else if (ev.type) {
+        setFridaConsole(
+          `${ev.type}: pid=${ev.pid ?? '?'} ${ev.identifier || ev.path || ''}`.trim(),
+          true,
+          'message',
+        );
+      }
+    }
+    if (sawSpawn) loadFridaPendingSpawn(serial);
+    if (sawChild) loadFridaPendingChildren(serial);
+  } catch (e) { /* ignore poll errors */ }
+}
+
+async function sendFridaStdin(serial) {
+  const pidEl = document.getElementById('frida-stdin-pid');
+  const dataEl = document.getElementById('frida-stdin-data');
+  const encEl = document.getElementById('frida-stdin-encoding');
+  const pid = (pidEl?.value || FRIDA_SELECTED_PID || '').toString().trim();
+  const data = (dataEl?.value || '');
+  const encoding = encEl?.value || 'utf8';
+  if (!pid) { toast('Enter a PID for stdin input', 'error'); return; }
+  if (!data) { toast('Enter data to send', 'error'); return; }
+  try {
+    const res = await apiFetch(
+      `/api/devices/${encodeURIComponent(serial)}/frida/input/${encodeURIComponent(pid)}`,
+      { method: 'POST', body: { data, encoding } },
+    );
+    const result = await res.json();
+    toast(result.ok ? `Sent ${result.bytes} byte(s) to pid ${pid}` : `stdin failed: ${result.error}`,
+      result.ok ? 'success' : 'error');
+    if (result.ok && dataEl) dataEl.value = '';
+  } catch (err) {
+    toast(String(err), 'error');
+  }
+}
+
+async function exportFridaConsole(format) {
+  // Prefer server-side buffer (full session log including binary hex); fall back to DOM text.
+  if (fridaSessionId) {
+    try {
+      const res = await apiFetch(
+        `/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/export?format=${encodeURIComponent(format)}`,
+      );
+      if (format === 'text') {
+        const text = await res.text();
+        if (res.ok) {
+          downloadFridaBlob(text, `frida-session-${fridaSessionId}.txt`, 'text/plain');
+          toast('Exported console as text', 'success');
+          return;
+        }
+      } else {
+        const data = await res.json();
+        if (data.ok) {
+          downloadFridaBlob(JSON.stringify(data, null, 2), `frida-session-${fridaSessionId}.json`, 'application/json');
+          toast('Exported console as JSON', 'success');
+          return;
+        }
+        toast(`Export failed: ${data.error || res.status}`, 'error');
+        return;
+      }
+    } catch (err) {
+      toast(`Export error: ${String(err)}`, 'error');
+      return;
+    }
+  }
+  const out = document.getElementById('frida-console');
+  const text = out ? out.innerText || out.textContent || '' : '';
+  if (!text.trim()) { toast('Console is empty', 'info'); return; }
+  if (format === 'json') {
+    const lines = text.split('\n').filter(Boolean).map((line) => ({ line }));
+    downloadFridaBlob(JSON.stringify({ messages: lines }, null, 2), 'frida-console.json', 'application/json');
+  } else {
+    downloadFridaBlob(text, 'frida-console.txt', 'text/plain');
+  }
+  toast('Exported console from UI', 'success');
+}
+
+function downloadFridaBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function eternalizeFrida() {
