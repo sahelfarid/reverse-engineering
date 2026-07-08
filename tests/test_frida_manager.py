@@ -50,6 +50,20 @@ def test_script_store_crud_rejects_path_traversal(tmp_path, monkeypatch):
     assert "demo" not in frida_manager.list_scripts()
 
 
+def test_bundled_bypass_templates_present_and_readonly(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    scripts = frida_manager.list_scripts()
+    for name in ("template-ssl-pinning-bypass", "template-root-detection-bypass"):
+        assert name in scripts
+        assert scripts[name]["readonly"] is True
+        assert "Java.perform" in scripts[name]["source"]
+    # SSL agent covers multiple frameworks, not a single stub
+    ssl_source = scripts["template-ssl-pinning-bypass"]["source"]
+    assert "okhttp3.CertificatePinner" in ssl_source
+    assert "TrustManagerImpl" in ssl_source
+    assert "WebViewClient" in ssl_source
+
+
 def test_default_scripts_are_readonly(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     default_name = next(iter(frida_manager.DEFAULT_SCRIPTS))

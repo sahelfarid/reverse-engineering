@@ -54,33 +54,161 @@ Java.perform(function () {
 });
 """,
     },
-    "template-root-detection-checks": {
+    "template-root-detection-bypass": {
         "readonly": True,
-        "description": "Defensive test template for validating root-detection behavior in your own app.",
+        "description": "Authorized defensive testing: neutralize common root-detection checks in your own app to validate the controls.",
         "source": """// Authorized defensive testing only: verify your own app's root-detection controls.
+// Each hook is wrapped so a class the app does not use is silently skipped.
 Java.perform(function () {
-  const File = Java.use("java.io.File");
-  const exists = File.exists.overload();
-  const suspicious = ["/system/xbin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"];
-  exists.implementation = function () {
-    const path = this.getAbsolutePath();
-    if (suspicious.indexOf(path) !== -1) {
-      console.log("root check File.exists blocked for " + path);
-      return false;
-    }
-    return exists.call(this);
-  };
+  function tryHook(name, fn) {
+    try { fn(); console.log("[root] hooked " + name); }
+    catch (e) { /* class/method not present in this app */ }
+  }
+
+  var suspiciousPaths = [
+    "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", "/system/xbin/su",
+    "/data/local/xbin/su", "/data/local/bin/su", "/system/sd/xbin/su",
+    "/system/bin/failsafe/su", "/data/local/su", "/su/bin/su",
+    "/system/xbin/busybox", "/system/bin/magisk", "/sbin/magisk", "/data/adb/magisk"
+  ];
+  var suspiciousPackages = [
+    "com.topjohnwu.magisk", "eu.chainfire.supersu",
+    "com.noshufou.android.su", "com.koushikdutta.superuser"
+  ];
+
+  tryHook("File.exists", function () {
+    var File = Java.use("java.io.File");
+    File.exists.implementation = function () {
+      var path = this.getAbsolutePath();
+      if (suspiciousPaths.indexOf(path) !== -1) {
+        send({ type: "root-bypass", check: "File.exists", path: String(path) });
+        return false;
+      }
+      return this.exists();  // Frida routes this to the original implementation
+    };
+  });
+
+  tryHook("Runtime.exec(String)", function () {
+    var Runtime = Java.use("java.lang.Runtime");
+    Runtime.exec.overload("java.lang.String").implementation = function (cmd) {
+      if (String(cmd).indexOf("su") !== -1 || String(cmd).indexOf("which") !== -1 || String(cmd).indexOf("busybox") !== -1) {
+        send({ type: "root-bypass", check: "Runtime.exec", cmd: String(cmd) });
+        return this.exec("echo");
+      }
+      return this.exec(cmd);
+    };
+  });
+
+  tryHook("SystemProperties.get", function () {
+    var SP = Java.use("android.os.SystemProperties");
+    SP.get.overload("java.lang.String").implementation = function (key) {
+      var value = this.get(key);
+      if (key === "ro.build.tags") return "release-keys";
+      if (key === "ro.debuggable" || key === "ro.secure") return key === "ro.secure" ? "1" : "0";
+      return value;
+    };
+  });
+
+  tryHook("Build.TAGS", function () {
+    Java.use("android.os.Build").TAGS.value = "release-keys";
+  });
+
+  tryHook("PackageManager.getPackageInfo (su managers)", function () {
+    var PM = Java.use("android.app.ApplicationPackageManager");
+    var NameNotFound = Java.use("android.content.pm.PackageManager$NameNotFoundException");
+    PM.getPackageInfo.overload("java.lang.String", "int").implementation = function (pkg, flags) {
+      if (suspiciousPackages.indexOf(String(pkg)) !== -1) {
+        send({ type: "root-bypass", check: "getPackageInfo", package: String(pkg) });
+        throw NameNotFound.$new(String(pkg));
+      }
+      return this.getPackageInfo(pkg, flags);
+    };
+  });
+
+  tryHook("RootBeer.*", function () {
+    var RootBeer = Java.use("com.scottyab.rootbeer.RootBeer");
+    ["isRooted", "isRootedWithoutBusyBoxCheck", "checkForBinary",
+     "detectRootManagementApps", "detectPotentiallyDangerousApps",
+     "checkForSuBinary", "checkForDangerousProps", "checkForRWPaths"].forEach(function (m) {
+      try {
+        RootBeer[m].overloads.forEach(function (ov) { ov.implementation = function () { return false; }; });
+      } catch (e) {}
+    });
+  });
+
+  send({ type: "notice", message: "Root-detection bypass hooks installed (authorized testing only)." });
 });
 """,
     },
-    "template-ssl-pinning-lab": {
+    "template-ssl-pinning-bypass": {
         "readonly": True,
-        "description": "Authorized proxy testing template for your own app and lab traffic.",
-        "source": """// Authorized testing only: use with your own app to validate proxy-based traffic inspection.
+        "description": "Authorized proxy testing: unpin TLS across common frameworks (OkHttp, Conscrypt, custom TrustManager, WebView) in your own app.",
+        "source": """// Authorized testing only: unpin TLS in your OWN app to inspect its traffic through a lab proxy.
+// Each framework hook is guarded so unused stacks are skipped cleanly.
 Java.perform(function () {
-  const X509TrustManager = Java.use("javax.net.ssl.X509TrustManager");
-  console.log("Load a focused SSL-pinning hook for the framework your own app uses.");
-  send({ type: "notice", message: "Starter loaded; tailor this to your app's networking stack." });
+  function tryHook(name, fn) {
+    try { fn(); console.log("[ssl] hooked " + name); }
+    catch (e) { /* framework not present in this app */ }
+  }
+
+  tryHook("OkHttp3 CertificatePinner.check", function () {
+    var CertificatePinner = Java.use("okhttp3.CertificatePinner");
+    CertificatePinner.check.overload("java.lang.String", "java.util.List").implementation = function (host, peerCertificates) {
+      send({ type: "ssl-bypass", framework: "okhttp3", host: String(host) });
+      return;
+    };
+    try {
+      CertificatePinner.check.overload("java.lang.String", "[Ljava.security.cert.Certificate;").implementation = function () { return; };
+    } catch (e) {}
+  });
+
+  tryHook("Conscrypt TrustManagerImpl.verifyChain", function () {
+    var TrustManagerImpl = Java.use("com.android.org.conscrypt.TrustManagerImpl");
+    TrustManagerImpl.verifyChain.implementation = function (untrustedChain, trustAnchorChain, host, clientAuth, ocspData, tlsSctData) {
+      send({ type: "ssl-bypass", framework: "conscrypt", host: String(host) });
+      return untrustedChain;
+    };
+  });
+
+  tryHook("Conscrypt TrustManagerImpl.checkTrustedRecursive", function () {
+    var TrustManagerImpl = Java.use("com.android.org.conscrypt.TrustManagerImpl");
+    var ArrayList = Java.use("java.util.ArrayList");
+    TrustManagerImpl.checkTrustedRecursive.implementation = function () {
+      return ArrayList.$new();
+    };
+  });
+
+  tryHook("SSLContext.init (custom TrustManager)", function () {
+    var X509TrustManager = Java.use("javax.net.ssl.X509TrustManager");
+    var SSLContext = Java.use("javax.net.ssl.SSLContext");
+    var TrustAll = Java.registerClass({
+      name: "org.authtest.TrustAllManager",
+      implements: [X509TrustManager],
+      methods: {
+        checkClientTrusted: function (chain, authType) {},
+        checkServerTrusted: function (chain, authType) {},
+        getAcceptedIssuers: function () { return []; }
+      }
+    });
+    var init = SSLContext.init.overload(
+      "[Ljavax.net.ssl.KeyManager;", "[Ljavax.net.ssl.TrustManager;", "java.security.SecureRandom");
+    init.implementation = function (km, tm, sr) {
+      send({ type: "ssl-bypass", framework: "sslcontext" });
+      init.call(this, km, [TrustAll.$new()], sr);
+    };
+  });
+
+  tryHook("WebViewClient.onReceivedSslError", function () {
+    var WebViewClient = Java.use("android.webkit.WebViewClient");
+    WebViewClient.onReceivedSslError.overload(
+      "android.webkit.WebView", "android.webkit.SslErrorHandler", "android.net.http.SslError")
+      .implementation = function (view, handler, error) {
+        send({ type: "ssl-bypass", framework: "webview" });
+        handler.proceed();
+      };
+  });
+
+  send({ type: "notice", message: "SSL unpinning hooks installed (authorized testing only)." });
 });
 """,
     },
