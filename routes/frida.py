@@ -78,6 +78,57 @@ def frontmost_application(serial):
     return err or jsonify({"ok": True, "application": result})
 
 
+@bp.post("/api/devices/<serial>/frida/spawn-gating/enable")
+@auth.login_required
+@auth.csrf_protect
+def enable_spawn_gating(serial):
+    result, err = _wrap(frida_manager.enable_spawn_gating, serial)
+    if err:
+        return err
+    auth.audit_log("frida_spawn_gating_enable", {"serial": serial})
+    return jsonify(result)
+
+
+@bp.post("/api/devices/<serial>/frida/spawn-gating/disable")
+@auth.login_required
+@auth.csrf_protect
+def disable_spawn_gating(serial):
+    result, err = _wrap(frida_manager.disable_spawn_gating, serial)
+    if err:
+        return err
+    auth.audit_log("frida_spawn_gating_disable", {"serial": serial})
+    return jsonify(result)
+
+
+@bp.get("/api/devices/<serial>/frida/pending-spawn")
+@auth.login_required
+def pending_spawn(serial):
+    result, err = _wrap(frida_manager.list_pending_spawn, serial)
+    return err or jsonify({"ok": True, "pending": result})
+
+
+@bp.post("/api/devices/<serial>/frida/resume/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def resume_pid(serial, pid):
+    result, err = _wrap(frida_manager.resume_pid, serial, pid)
+    if err:
+        return err
+    auth.audit_log("frida_resume", {"serial": serial, "pid": pid})
+    return jsonify(result)
+
+
+@bp.post("/api/devices/<serial>/frida/kill/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def kill_pid(serial, pid):
+    result, err = _wrap(frida_manager.kill_pid, serial, pid)
+    if err:
+        return err
+    auth.audit_log("frida_kill", {"serial": serial, "pid": pid})
+    return jsonify(result)
+
+
 @bp.post("/api/devices/<serial>/frida/attach")
 @auth.login_required
 @auth.csrf_protect

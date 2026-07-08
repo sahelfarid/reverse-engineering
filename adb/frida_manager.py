@@ -376,6 +376,70 @@ def get_frontmost_application(serial: str) -> dict | None:
     return _application_public(app) if app else None
 
 
+def _require_pid(pid) -> int:
+    try:
+        value = int(pid)
+    except (TypeError, ValueError) as exc:
+        raise manager.AdbError("invalid pid") from exc
+    if value <= 0:
+        raise manager.AdbError("invalid pid")
+    return value
+
+
+def enable_spawn_gating(serial: str) -> dict:
+    """Suspend every newly spawned process so it can be hooked before it runs."""
+    device = _frida_device(serial)
+    try:
+        device.enable_spawn_gating()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to enable spawn gating: {exc}") from exc
+    return {"ok": True, "spawn_gating": True}
+
+
+def disable_spawn_gating(serial: str) -> dict:
+    device = _frida_device(serial)
+    try:
+        device.disable_spawn_gating()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to disable spawn gating: {exc}") from exc
+    return {"ok": True, "spawn_gating": False}
+
+
+def list_pending_spawn(serial: str) -> list[dict]:
+    """List processes suspended by spawn gating, awaiting resume or kill."""
+    device = _frida_device(serial)
+    try:
+        pending = device.enumerate_pending_spawn()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list pending spawn: {exc}") from exc
+    return sorted(
+        ({"pid": s.pid, "identifier": getattr(s, "identifier", None)} for s in pending),
+        key=lambda s: s["pid"],
+    )
+
+
+def resume_pid(serial: str, pid) -> dict:
+    """Resume a suspended (spawn-gated or freshly spawned) process."""
+    device = _frida_device(serial)
+    value = _require_pid(pid)
+    try:
+        device.resume(value)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to resume pid {value}: {exc}") from exc
+    return {"ok": True, "pid": value, "resumed": True}
+
+
+def kill_pid(serial: str, pid) -> dict:
+    """Kill a process on the device via the Frida device API."""
+    device = _frida_device(serial)
+    value = _require_pid(pid)
+    try:
+        device.kill(value)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to kill pid {value}: {exc}") from exc
+    return {"ok": True, "pid": value, "killed": True}
+
+
 def _session_public(session_id: str, entry: dict) -> dict:
     return {
         "id": session_id,

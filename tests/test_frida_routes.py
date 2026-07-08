@@ -83,6 +83,58 @@ def test_frontmost_application_success(auth_client):
     assert res.get_json()["application"] == app
 
 
+def test_enable_spawn_gating_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.enable_spawn_gating", return_value={"ok": True, "spawn_gating": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/spawn-gating/enable")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_spawn_gating_enable", {"serial": "s1"})
+
+
+def test_disable_spawn_gating_success(auth_client):
+    with patch("routes.frida.frida_manager.disable_spawn_gating", return_value={"ok": True, "spawn_gating": False}), \
+         patch("routes.frida.auth.audit_log"):
+        res = _post(auth_client, "/api/devices/s1/frida/spawn-gating/disable")
+    assert res.status_code == 200
+    assert res.get_json()["spawn_gating"] is False
+
+
+def test_pending_spawn_success(auth_client):
+    pending = [{"pid": 10, "identifier": "com.a"}]
+    with patch("routes.frida.frida_manager.list_pending_spawn", return_value=pending):
+        res = auth_client.get("/api/devices/s1/frida/pending-spawn")
+    assert res.status_code == 200
+    assert res.get_json()["pending"] == pending
+
+
+def test_resume_pid_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.resume_pid", return_value={"ok": True, "pid": 1234, "resumed": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/resume/1234")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_resume", {"serial": "s1", "pid": 1234})
+
+
+def test_kill_pid_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.kill_pid", return_value={"ok": True, "pid": 55, "killed": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/devices/s1/frida/kill/55")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_kill", {"serial": "s1", "pid": 55})
+
+
+def test_kill_pid_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.kill_pid", side_effect=adb_manager.AdbError("failed to kill pid 55")):
+        res = _post(auth_client, "/api/devices/s1/frida/kill/55")
+    assert res.status_code == 400
+
+
+def test_spawn_gating_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    res = client.post("/api/devices/s1/frida/spawn-gating/enable")
+    assert res.status_code == 403
+
+
 def test_attach_missing_script_source(auth_client):
     res = _post(auth_client, "/api/devices/s1/frida/attach", {"target": "1234"})
     assert res.status_code == 400

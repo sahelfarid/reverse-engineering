@@ -490,6 +490,59 @@ def test_list_sessions_exposes_detach_state():
     frida_manager._sessions.clear()
 
 
+def test_enable_and_disable_spawn_gating():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        assert frida_manager.enable_spawn_gating("s1") == {"ok": True, "spawn_gating": True}
+        assert frida_manager.disable_spawn_gating("s1") == {"ok": True, "spawn_gating": False}
+    device.enable_spawn_gating.assert_called_once_with()
+    device.disable_spawn_gating.assert_called_once_with()
+
+
+def test_enable_spawn_gating_wraps_errors():
+    device = MagicMock()
+    device.enable_spawn_gating.side_effect = RuntimeError("not running")
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        with pytest.raises(manager.AdbError, match="failed to enable spawn gating"):
+            frida_manager.enable_spawn_gating("s1")
+
+
+def test_list_pending_spawn_sorts_by_pid():
+    pending = [
+        types.SimpleNamespace(pid=30, identifier="com.c"),
+        types.SimpleNamespace(pid=10, identifier="com.a"),
+    ]
+    device = types.SimpleNamespace(enumerate_pending_spawn=lambda: pending)
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        result = frida_manager.list_pending_spawn("s1")
+    assert result == [
+        {"pid": 10, "identifier": "com.a"},
+        {"pid": 30, "identifier": "com.c"},
+    ]
+
+
+def test_resume_pid_calls_device_resume():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        assert frida_manager.resume_pid("s1", "1234") == {"ok": True, "pid": 1234, "resumed": True}
+    device.resume.assert_called_once_with(1234)
+
+
+def test_kill_pid_calls_device_kill():
+    device = MagicMock()
+    with patch("adb.frida_manager._frida_device", return_value=device):
+        assert frida_manager.kill_pid("s1", 55) == {"ok": True, "pid": 55, "killed": True}
+    device.kill.assert_called_once_with(55)
+
+
+def test_resume_pid_rejects_invalid_pid():
+    with patch("adb.frida_manager._frida_device", return_value=MagicMock()):
+        with pytest.raises(manager.AdbError, match="invalid pid"):
+            frida_manager.resume_pid("s1", "not-a-pid")
+        with pytest.raises(manager.AdbError, match="invalid pid"):
+            frida_manager.kill_pid("s1", 0)
+
+
 def test_list_applications_sorts_running_first_then_name():
     apps = [
         types.SimpleNamespace(identifier="com.z.bg", name="Zeta", pid=0),

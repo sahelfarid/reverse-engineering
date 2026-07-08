@@ -30,6 +30,11 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | GET | `/api/devices/<serial>/frida/processes` | List processes (Frida API, falls back to ADB). |
 | GET | `/api/devices/<serial>/frida/applications` | List installed applications (identifier, name, running/pid). |
 | GET | `/api/devices/<serial>/frida/frontmost` | The application currently in the foreground, or null. |
+| POST | `/api/devices/<serial>/frida/spawn-gating/enable` | Suspend every newly spawned process. |
+| POST | `/api/devices/<serial>/frida/spawn-gating/disable` | Stop suspending new spawns. |
+| GET | `/api/devices/<serial>/frida/pending-spawn` | List spawn-gated processes awaiting resume/kill. |
+| POST | `/api/devices/<serial>/frida/resume/<pid>` | Resume a suspended process. |
+| POST | `/api/devices/<serial>/frida/kill/<pid>` | Kill a process via the Frida device API. |
 | POST | `/api/devices/<serial>/frida/attach` | Attach to or spawn a target with a script. |
 | GET | `/api/frida/sessions` | List active sessions. |
 | GET | `/api/frida/sessions/<session_id>/stream` | SSE stream of a session's messages. |

@@ -107,13 +107,75 @@ function renderFridaTargetView(body, serial) {
           <tbody id="frida-process-body"><tr><td colspan="4">Loading...</td></tr></tbody>
         </table>
       </div>
+      <div class="section-head" style="margin-top:14px;">
+        <div><h3>Spawn gating</h3><p class="section-desc">Suspend every newly launched process so you can attach before it runs.</p></div>
+      </div>
+      <div class="toolbar-row">
+        <button id="frida-gating-enable-btn">Enable gating</button>
+        <button id="frida-gating-disable-btn">Disable gating</button>
+        <button id="frida-pending-refresh-btn">Refresh pending</button>
+      </div>
+      <div class="table-wrap auto-height">
+        <table>
+          <thead><tr><th>PID</th><th>Identifier</th><th>Action</th></tr></thead>
+          <tbody id="frida-pending-body"><tr><td colspan="3" class="muted">Enable gating, then launch the target app.</td></tr></tbody>
+        </table>
+      </div>
     </section>`;
   document.getElementById('frida-mode-processes').addEventListener('click', () => setFridaTargetMode(serial, 'processes'));
   document.getElementById('frida-mode-apps').addEventListener('click', () => setFridaTargetMode(serial, 'apps'));
   document.getElementById('frida-process-refresh-btn').addEventListener('click', () => reloadFridaTarget(serial));
   document.getElementById('frida-frontmost-btn').addEventListener('click', () => selectFridaFrontmost(serial));
   document.getElementById('frida-process-filter').addEventListener('input', renderFridaTargetTable);
+  document.getElementById('frida-gating-enable-btn').addEventListener('click', () => setFridaSpawnGating(serial, true));
+  document.getElementById('frida-gating-disable-btn').addEventListener('click', () => setFridaSpawnGating(serial, false));
+  document.getElementById('frida-pending-refresh-btn').addEventListener('click', () => loadFridaPendingSpawn(serial));
   reloadFridaTarget(serial);
+}
+
+async function setFridaSpawnGating(serial, enable) {
+  const action = enable ? 'enable' : 'disable';
+  const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/spawn-gating/${action}`, { method: 'POST' });
+  const data = await res.json();
+  toast(data.ok ? `Spawn gating ${action}d` : `Gating ${action} failed: ${data.error}`, data.ok ? 'success' : 'error');
+  if (data.ok && enable) loadFridaPendingSpawn(serial);
+}
+
+async function loadFridaPendingSpawn(serial) {
+  const body = document.getElementById('frida-pending-body');
+  if (body) body.innerHTML = `<tr><td colspan="3">Loading...</td></tr>`;
+  try {
+    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/pending-spawn`);
+    const data = await res.json();
+    if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="3" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
+    const rows = data.pending || [];
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="3" class="muted">No pending spawns</td></tr>`; return; }
+    body.innerHTML = rows.map((s) => `
+      <tr>
+        <td>${s.pid}</td>
+        <td>${escapeHtml(s.identifier || '-')}</td>
+        <td>
+          <button data-frida-resume="${s.pid}" title="Resume so it runs normally">Resume</button>
+          <button data-frida-kill="${s.pid}" title="Kill the suspended process">Kill</button>
+        </td>
+      </tr>`).join('');
+    body.querySelectorAll('button[data-frida-resume]').forEach((btn) => {
+      btn.addEventListener('click', () => fridaPidAction(serial, 'resume', btn.dataset.fridaResume));
+    });
+    body.querySelectorAll('button[data-frida-kill]').forEach((btn) => {
+      btn.addEventListener('click', () => fridaPidAction(serial, 'kill', btn.dataset.fridaKill));
+    });
+  } catch (err) {
+    if (body) body.innerHTML = `<tr><td colspan="3">${escapeHtml(String(err))}</td></tr>`;
+  }
+}
+
+async function fridaPidAction(serial, action, pid) {
+  const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/${action}/${encodeURIComponent(pid)}`, { method: 'POST' });
+  const data = await res.json();
+  toast(data.ok ? `${action} pid ${pid} ok` : `${action} failed: ${data.error}`, data.ok ? 'success' : 'error');
+  loadFridaPendingSpawn(serial);
+  if (FRIDA_TARGET_MODE === 'processes') loadFridaProcesses(serial);
 }
 
 function setFridaTargetMode(serial, mode) {
@@ -241,11 +303,20 @@ function renderFridaProcessTable() {
     <tr>
       <td>${p.pid ?? '-'}</td>
       <td>${escapeHtml(p.name || '-')}</td>
-      <td><button data-frida-pid="${p.pid}">Select</button></td>
+      <td>
+        <button data-frida-pid="${p.pid}">Select</button>
+        <button data-frida-killproc="${p.pid}" title="Kill this process">Kill</button>
+      </td>
     </tr>
   `).join('');
   body.querySelectorAll('button[data-frida-pid]').forEach((btn) => {
     btn.addEventListener('click', () => selectFridaPid(btn.dataset.fridaPid, btn));
+  });
+  body.querySelectorAll('button[data-frida-killproc]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const serial = getSelectedSerial();
+      if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
+    });
   });
 }
 
