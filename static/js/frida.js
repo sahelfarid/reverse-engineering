@@ -49,6 +49,10 @@ function renderFridaTab() {
           <input type="text" id="frida-rpc-args" placeholder='args JSON, e.g. [1, "x"]' disabled style="flex:1; min-width:160px;">
           <button id="frida-rpc-call-btn" disabled>Call</button>
         </div>
+        <div class="toolbar-row" style="margin-top:6px;">
+          <input type="text" id="frida-post-input" placeholder='send to script (JSON or text), delivered to recv()' disabled style="flex:1; min-width:200px;">
+          <button id="frida-post-btn" disabled>Send</button>
+        </div>
       </section>
       <div id="frida-subnav"></div>
     </div>
@@ -56,6 +60,7 @@ function renderFridaTab() {
   document.getElementById('frida-detach-btn').addEventListener('click', detachFrida);
   document.getElementById('frida-rpc-refresh-btn').addEventListener('click', loadFridaExports);
   document.getElementById('frida-rpc-call-btn').addEventListener('click', callFridaExport);
+  document.getElementById('frida-post-btn').addEventListener('click', postFridaMessage);
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
@@ -372,17 +377,39 @@ async function attachFrida(serial, spawn = false) {
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
   fridaSessionId = data.session_id;
   document.getElementById('frida-detach-btn').disabled = false;
-  const rpcRefresh = document.getElementById('frida-rpc-refresh-btn');
-  if (rpcRefresh) rpcRefresh.disabled = false;
+  ['frida-rpc-refresh-btn', 'frida-post-input', 'frida-post-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
   setFridaConsole(`Attached session ${fridaSessionId}`);
   startFridaStream(fridaSessionId);
 }
 
 function setFridaRpcDisabled(disabled) {
-  ['frida-rpc-refresh-btn', 'frida-rpc-select', 'frida-rpc-args', 'frida-rpc-call-btn'].forEach((id) => {
+  ['frida-rpc-refresh-btn', 'frida-rpc-select', 'frida-rpc-args', 'frida-rpc-call-btn',
+   'frida-post-input', 'frida-post-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = disabled;
   });
+}
+
+async function postFridaMessage() {
+  if (!fridaSessionId) return;
+  const input = document.getElementById('frida-post-input');
+  const raw = input.value.trim();
+  if (!raw) return;
+  let message;
+  try { message = JSON.parse(raw); } catch (e) { message = raw; }  // fall back to plain string
+  setFridaConsole(`post: ${raw}`, true, 'send');
+  try {
+    const res = await apiFetch(`/api/frida/sessions/${encodeURIComponent(fridaSessionId)}/post`,
+      { method: 'POST', body: { message } });
+    const data = await res.json();
+    if (!data.ok) { setFridaConsole(`post error: ${data.error}`, true, 'error'); return; }
+    input.value = '';
+  } catch (err) {
+    setFridaConsole(`post error: ${String(err)}`, true, 'error');
+  }
 }
 
 async function loadFridaExports() {

@@ -35,6 +35,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | GET | `/api/frida/sessions/<session_id>/stream` | SSE stream of a session's messages. |
 | GET | `/api/frida/sessions/<session_id>/exports` | List the attached script's `rpc.exports` names. |
 | POST | `/api/frida/sessions/<session_id>/exports/<name>` | Invoke an export with positional JSON `args`. |
+| POST | `/api/frida/sessions/<session_id>/post` | Send a `message` (+ optional hex `data`) into the script's `recv()`. |
 | POST | `/api/frida/sessions/<session_id>/detach` | Detach a session. |
 | GET | `/api/frida/scripts` | List stored scripts. |
 | POST | `/api/frida/scripts` | Save a script. |

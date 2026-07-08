@@ -572,6 +572,26 @@ def call_script_export(session_id: str, name: str, args: list | None = None):
     return _json_safe(result)
 
 
+def post_message(session_id: str, message, data: str | None = None) -> dict:
+    """Send a message into a live script (the agent receives it via recv()).
+
+    `message` is any JSON-serializable value; optional `data` is a hex string
+    delivered as the binary side-channel of script.post().
+    """
+    entry = _live_session(session_id)
+    binary = None
+    if data is not None:
+        try:
+            binary = bytes.fromhex(str(data))
+        except ValueError as exc:
+            raise manager.AdbError("data must be a hex string") from exc
+    try:
+        entry["script"].post(message, data=binary)
+    except Exception as exc:
+        raise manager.AdbError(f"post failed: {exc}") from exc
+    return {"ok": True}
+
+
 def detach(session_id: str) -> dict:
     with _sessions_lock:
         entry = _sessions.pop(session_id, None)

@@ -396,6 +396,40 @@ def test_call_script_export_unknown_export():
     frida_manager._sessions.clear()
 
 
+def test_post_message_forwards_to_script():
+    frida_manager._sessions.clear()
+    script = MagicMock()
+    frida_manager._sessions["s"] = {"script": script}
+    assert frida_manager.post_message("s", {"cmd": "ping"}) == {"ok": True}
+    script.post.assert_called_once_with({"cmd": "ping"}, data=None)
+    frida_manager._sessions.clear()
+
+
+def test_post_message_decodes_hex_data():
+    frida_manager._sessions.clear()
+    script = MagicMock()
+    frida_manager._sessions["s"] = {"script": script}
+    frida_manager.post_message("s", {"cmd": "write"}, data="0a0b")
+    script.post.assert_called_once_with({"cmd": "write"}, data=b"\x0a\x0b")
+    frida_manager._sessions.clear()
+
+
+def test_post_message_rejects_bad_hex():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"script": MagicMock()}
+    with pytest.raises(manager.AdbError, match="hex string"):
+        frida_manager.post_message("s", {}, data="nothex")
+    frida_manager._sessions.clear()
+
+
+def test_post_message_rejects_detached_session():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["s"] = {"detached": True, "script": MagicMock()}
+    with pytest.raises(manager.AdbError, match="detached"):
+        frida_manager.post_message("s", {})
+    frida_manager._sessions.clear()
+
+
 def test_detach_handler_records_reason_and_enqueues_message():
     import queue as queue_module
 

@@ -147,6 +147,20 @@ def call_export(session_id, name):
     return jsonify({"ok": True, "result": result})
 
 
+@bp.post("/api/frida/sessions/<session_id>/post")
+@auth.login_required
+@auth.csrf_protect
+def post_message(session_id):
+    d = request.get_json(silent=True) or {}
+    if "message" not in d:
+        return jsonify({"ok": False, "error": "missing_message"}), 400
+    result, err = _wrap(frida_manager.post_message, session_id, d.get("message"), d.get("data"))
+    if err:
+        return err
+    auth.audit_log("frida_post_message", {"session_id": session_id})
+    return jsonify(result)
+
+
 @bp.post("/api/frida/sessions/<session_id>/detach")
 @auth.login_required
 @auth.csrf_protect

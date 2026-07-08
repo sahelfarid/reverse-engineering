@@ -184,6 +184,28 @@ def test_call_export_requires_csrf(client):
     assert res.status_code == 403
 
 
+def test_post_message_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.post_message", return_value={"ok": True}) as mock_post, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"message": {"cmd": "ping"}})
+    assert res.status_code == 200
+    mock_post.assert_called_once_with("sess-1", {"cmd": "ping"}, None)
+    mock_audit.assert_called_once_with("frida_post_message", {"session_id": "sess-1"})
+
+
+def test_post_message_missing_message_field(auth_client):
+    res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"data": "00"})
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "missing_message"
+
+
+def test_post_message_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.post_message",
+               side_effect=adb_manager.AdbError("session is detached")):
+        res = _post(auth_client, "/api/frida/sessions/sess-1/post", {"message": {}})
+    assert res.status_code == 400
+
+
 def test_detach_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.detach", return_value={"ok": True, "detached": True}), \
          patch("routes.frida.auth.audit_log") as mock_audit:
