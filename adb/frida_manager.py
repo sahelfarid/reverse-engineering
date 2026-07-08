@@ -382,7 +382,39 @@ def _session_public(session_id: str, entry: dict) -> dict:
         "serial": entry["serial"],
         "target": entry["target"],
         "created_at": entry["created_at"],
+        "detached": entry.get("detached", False),
+        "detach_reason": entry.get("detach_reason"),
     }
+
+
+def _summarize_crash(crash) -> dict | None:
+    if crash is None:
+        return None
+    return {
+        "pid": getattr(crash, "pid", None),
+        "process_name": getattr(crash, "process_name", None),
+        "summary": getattr(crash, "summary", None),
+    }
+
+
+def _make_detach_handler(session_id: str, messages: "queue.Queue"):
+    """Frida fires 'detached' with (reason[, crash]); surface it to the stream.
+
+    Signature varies across frida versions (some omit crash), so accept *args.
+    """
+    def on_detached(*args):
+        reason = args[0] if args else None
+        crash = _summarize_crash(args[1]) if len(args) > 1 else None
+        with _sessions_lock:
+            entry = _sessions.get(session_id)
+            if entry:
+                entry["detached"] = True
+                entry["detach_reason"] = reason
+        payload = {"type": "detached", "reason": reason}
+        if crash:
+            payload["crash"] = crash
+        messages.put({"message": payload, "data": None})
+    return on_detached
 
 
 def list_sessions() -> list[dict]:
@@ -428,7 +460,13 @@ def attach(serial: str, target, script_source: str) -> str:
             "script": script,
             "queue": messages,
             "created_at": time.time(),
+            "detached": False,
+            "detach_reason": None,
         }
+    try:
+        session.on("detached", _make_detach_handler(session_id, messages))
+    except Exception:
+        pass  # signal wiring is best-effort; the session still works without it
     return session_id
 
 

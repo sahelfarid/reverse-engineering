@@ -339,6 +339,66 @@ def test_list_processes_falls_back_to_adb_on_frida_failure():
     assert result == [{"pid": 1, "name": "init"}]
 
 
+def test_detach_handler_records_reason_and_enqueues_message():
+    import queue as queue_module
+
+    frida_manager._sessions.clear()
+    q = queue_module.Queue()
+    frida_manager._sessions["sess1"] = {"detached": False, "detach_reason": None, "queue": q}
+    handler = frida_manager._make_detach_handler("sess1", q)
+
+    handler("application-requested")
+
+    entry = frida_manager._sessions["sess1"]
+    assert entry["detached"] is True
+    assert entry["detach_reason"] == "application-requested"
+    msg = q.get_nowait()["message"]
+    assert msg == {"type": "detached", "reason": "application-requested"}
+    frida_manager._sessions.clear()
+
+
+def test_detach_handler_summarizes_crash_when_provided():
+    import queue as queue_module
+
+    frida_manager._sessions.clear()
+    q = queue_module.Queue()
+    frida_manager._sessions["sess1"] = {"detached": False, "detach_reason": None, "queue": q}
+    handler = frida_manager._make_detach_handler("sess1", q)
+    crash = types.SimpleNamespace(pid=99, process_name="com.example", summary="SIGSEGV")
+
+    handler("process-terminated", crash)
+
+    msg = q.get_nowait()["message"]
+    assert msg["type"] == "detached"
+    assert msg["reason"] == "process-terminated"
+    assert msg["crash"] == {"pid": 99, "process_name": "com.example", "summary": "SIGSEGV"}
+    frida_manager._sessions.clear()
+
+
+def test_detach_handler_tolerates_missing_session_and_no_args():
+    import queue as queue_module
+
+    frida_manager._sessions.clear()
+    q = queue_module.Queue()
+    handler = frida_manager._make_detach_handler("gone", q)
+    handler()  # no reason, unknown session -- must not raise
+    assert q.get_nowait()["message"] == {"type": "detached", "reason": None}
+
+
+def test_list_sessions_exposes_detach_state():
+    frida_manager._sessions.clear()
+    frida_manager._sessions["sess1"] = {
+        "serial": "s1", "target": "1234", "created_at": 1.0,
+        "detached": True, "detach_reason": "device-lost",
+    }
+    sessions = frida_manager.list_sessions()
+    assert sessions == [{
+        "id": "sess1", "serial": "s1", "target": "1234", "created_at": 1.0,
+        "detached": True, "detach_reason": "device-lost",
+    }]
+    frida_manager._sessions.clear()
+
+
 def test_list_applications_sorts_running_first_then_name():
     apps = [
         types.SimpleNamespace(identifier="com.z.bg", name="Zeta", pid=0),

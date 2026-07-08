@@ -45,6 +45,7 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 - `get_status()` reports each device's on-device `server_version` (from `frida-server --version`) and a `version_match` flag against the installed Python `frida`. `attach()` calls `check_version_compatibility()` first and raises a clear error on a major.minor divergence (the frida wire protocol is tied to major.minor), rather than letting attach fail with a cryptic engine error.
 - Script names are constrained, default templates are read-only, and script size is capped at 256 KiB.
 - Attach audit logs include target, script name, and source hash rather than full source.
+- Each session registers a `detached` signal handler; when the target quits/crashes/disconnects, the reason (and a crash summary when present) is recorded on the session and pushed into its message stream as a `{"type": "detached"}` event, and `list_sessions()` exposes `detached`/`detach_reason`.
 - The session registry and message queues are process-local.
 
 ## Known Limitations

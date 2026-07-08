@@ -375,6 +375,15 @@ function startFridaStream(sessionId) {
     const entry = JSON.parse(event.data);
     const msg = entry.message || {};
     if (msg.type === 'heartbeat') return;
+    if (msg.type === 'detached') {
+      const crash = msg.crash ? ` (crash: ${escapeHtml(msg.crash.summary || msg.crash.process_name || '')})` : '';
+      setFridaConsole(`session detached: ${msg.reason || 'unknown reason'}${crash}`, true, 'error');
+      if (fridaSource) { fridaSource.close(); fridaSource = null; }
+      fridaSessionId = null;
+      const btn = document.getElementById('frida-detach-btn');
+      if (btn) btn.disabled = true;
+      return;
+    }
     if (msg.type === 'send') setFridaConsole(`send: ${JSON.stringify(msg.payload)}`, true, 'send');
     else if (msg.type === 'error') setFridaConsole(`error: ${msg.description || JSON.stringify(msg)}`, true, 'error');
     else setFridaConsole(`${msg.type || 'message'}: ${JSON.stringify(msg)}`, true, 'message');
