@@ -1,3 +1,4 @@
+from . import app_data  # noqa: F401
 from . import app_inspector  # noqa: F401
 from . import apktool  # noqa: F401
 from . import automation  # noqa: F401
@@ -30,6 +31,7 @@ def register_blueprints(app):
     app.register_blueprint(jadx.bp)
     app.register_blueprint(packages.bp)
     app.register_blueprint(app_inspector.bp)
+    app.register_blueprint(app_data.bp)
     app.register_blueprint(logcat.bp)
     app.register_blueprint(screen.bp)
     app.register_blueprint(automation.bp)
