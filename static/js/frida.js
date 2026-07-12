@@ -25,6 +25,7 @@ let fridaDeviceEventTimer = null;
 let fridaDeviceEventAfter = 0;
 let fridaDeviceEventSerial = null;
 let fridaBinarySeq = 0;
+let fridaLastDeviceContext = '';
 
 function selectedFridaDeviceStatus(serial) {
   return FRIDA_STATUS && (FRIDA_STATUS.devices || []).find((d) => d.serial === serial);
@@ -36,6 +37,11 @@ function fridaIsMacScope() {
 
 function fridaScopeKey(serial) {
   return fridaIsMacScope() ? 'mac' : `android:${serial || ''}`;
+}
+
+function fridaDeviceContext(serial, device) {
+  if (fridaIsMacScope()) return 'mac';
+  return `android:${serial || ''}:${device ? device.state || '' : ''}`;
 }
 
 function fridaApiBase(serial) {
@@ -71,6 +77,7 @@ function renderFridaTab() {
   const serial = getSelectedSerial();
   const device = getSelectedDevice();
   if (!fridaRequireAndroidDevice(serial, device) && FRIDA_SCOPE === 'android') FRIDA_SCOPE = 'mac';
+  fridaLastDeviceContext = fridaDeviceContext(serial, device);
   FRIDA_SELECTED_PID = null;
   const modeLabel = fridaIsMacScope() ? 'Mac host' : 'Android device';
   const scopeDescription = fridaIsMacScope()
@@ -1670,5 +1677,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tab === 'frida') renderFridaTab();
     else if (fridaSource) { fridaSource.close(); fridaSource = null; }
   });
-  onDeviceChange(() => { if (currentTab() === 'frida') renderFridaTab(); });
+  onDeviceChange((serial, device) => {
+    if (currentTab() !== 'frida') return;
+    if (fridaIsMacScope()) return;
+    const nextContext = fridaDeviceContext(serial, device);
+    if (nextContext === fridaLastDeviceContext) return;
+    renderFridaTab();
+  });
 });
