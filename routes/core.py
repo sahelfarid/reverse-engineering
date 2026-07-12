@@ -56,6 +56,9 @@ def setup():
 
 @bp.post("/api/auth/login")
 def login():
+    if auth.auth_bypass_enabled():
+        auth.login_session(remember=True)
+        return jsonify({"ok": True, "csrf_token": session["csrf_token"], "auth_bypass": True})
     data = request.get_json(silent=True) or {}
     password = data.get("password", "")
     if not auth.verify_password(password):

@@ -15,7 +15,18 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import config
 
 
+# TEMP DEV BYPASS: comment this back to False to restore password login.
+# Keeps the local panel open while Frida/macOS tooling is being iterated.
+AUTH_LOGIN_TEMP_DISABLED = True
+
+
+def auth_bypass_enabled() -> bool:
+    return AUTH_LOGIN_TEMP_DISABLED
+
+
 def has_password() -> bool:
+    if auth_bypass_enabled():
+        return False
     return bool(config.load_settings().get("password_hash"))
 
 
@@ -25,6 +36,8 @@ def is_setup_complete() -> bool:
     Also true for any install that already has a password_hash from before
     this flag existed, so upgrading never re-shows the setup screen.
     """
+    if auth_bypass_enabled():
+        return True
     settings = config.load_settings()
     return bool(settings.get("auth_setup_complete")) or bool(settings.get("password_hash"))
 
@@ -38,6 +51,10 @@ def verify_password(candidate: str) -> bool:
 
 
 def is_authenticated() -> bool:
+    if auth_bypass_enabled():
+        session["authenticated"] = True
+        ensure_csrf_token()
+        return True
     if is_setup_complete() and not has_password():
         return True  # password was explicitly skipped during setup -- open access by design
     return bool(session.get("authenticated"))
@@ -102,6 +119,9 @@ def login_required(view):
 def csrf_protect(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if auth_bypass_enabled():
+            ensure_csrf_token()
+            return view(*args, **kwargs)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             header_token = request.headers.get("X-CSRF-Token", "")
             session_token = session.get("csrf_token", "")
