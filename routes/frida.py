@@ -24,6 +24,264 @@ def status():
     return jsonify(frida_manager.get_status())
 
 
+@bp.get("/api/frida/mac/status")
+@auth.login_required
+def mac_status():
+    return jsonify(frida_manager.get_mac_status())
+
+
+@bp.get("/api/frida/mac/tools/status")
+@auth.login_required
+def mac_tools_status():
+    return jsonify(frida_manager.get_mac_tools_status())
+
+
+@bp.post("/api/frida/mac/tools/install")
+@auth.login_required
+@auth.csrf_protect
+def install_mac_tools():
+    result, err = _wrap(frida_manager.install_or_update_mac_tools, False)
+    if err:
+        return err
+    status = result.get("status") or {}
+    auth.audit_log("frida_mac_tools_install", {
+        "python": status.get("python"),
+        "frida_version": (status.get("packages") or {}).get("frida", {}).get("version"),
+        "frida_tools_version": (status.get("packages") or {}).get("frida-tools", {}).get("version"),
+    })
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/tools/update")
+@auth.login_required
+@auth.csrf_protect
+def update_mac_tools():
+    result, err = _wrap(frida_manager.install_or_update_mac_tools, True)
+    if err:
+        return err
+    status = result.get("status") or {}
+    auth.audit_log("frida_mac_tools_update", {
+        "python": status.get("python"),
+        "frida_version": (status.get("packages") or {}).get("frida", {}).get("version"),
+        "frida_tools_version": (status.get("packages") or {}).get("frida-tools", {}).get("version"),
+    })
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/tools/test")
+@auth.login_required
+@auth.csrf_protect
+def test_mac_tools():
+    result, err = _wrap(frida_manager.test_mac_tools)
+    if err:
+        return err
+    auth.audit_log("frida_mac_tools_test", {"ok": bool(result.get("ok"))})
+    status_code = 200 if result.get("ok") else 500
+    return jsonify(result), status_code
+
+
+@bp.get("/api/frida/mac/processes")
+@auth.login_required
+def mac_processes():
+    result, err = _wrap(frida_manager.list_mac_processes)
+    return err or jsonify({"ok": True, "processes": result})
+
+
+@bp.get("/api/frida/mac/applications")
+@auth.login_required
+def mac_applications():
+    result, err = _wrap(frida_manager.list_mac_applications)
+    return err or jsonify({"ok": True, "applications": result})
+
+
+@bp.get("/api/frida/mac/frontmost")
+@auth.login_required
+def mac_frontmost_application():
+    result, err = _wrap(frida_manager.get_mac_frontmost_application)
+    return err or jsonify({"ok": True, "application": result})
+
+
+@bp.get("/api/frida/mac/system")
+@auth.login_required
+def mac_system_parameters():
+    result, err = _wrap(frida_manager.get_mac_system_parameters)
+    return err or jsonify({"ok": True, "system": result})
+
+
+@bp.get("/api/frida/mac/process")
+@auth.login_required
+def mac_process_details():
+    result, err = _wrap(frida_manager.get_mac_process, request.args.get("q", ""))
+    return err or jsonify({"ok": True, "process": result})
+
+
+@bp.post("/api/frida/mac/spawn-gating/enable")
+@auth.login_required
+@auth.csrf_protect
+def enable_mac_spawn_gating():
+    result, err = _wrap(frida_manager.enable_mac_spawn_gating)
+    if err:
+        return err
+    auth.audit_log("frida_mac_spawn_gating_enable", {})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/spawn-gating/disable")
+@auth.login_required
+@auth.csrf_protect
+def disable_mac_spawn_gating():
+    result, err = _wrap(frida_manager.disable_mac_spawn_gating)
+    if err:
+        return err
+    auth.audit_log("frida_mac_spawn_gating_disable", {})
+    return jsonify(result)
+
+
+@bp.get("/api/frida/mac/pending-spawn")
+@auth.login_required
+def mac_pending_spawn():
+    result, err = _wrap(frida_manager.list_mac_pending_spawn)
+    return err or jsonify({"ok": True, "pending": result})
+
+
+@bp.get("/api/frida/mac/pending-children")
+@auth.login_required
+def mac_pending_children():
+    result, err = _wrap(frida_manager.list_mac_pending_children)
+    return err or jsonify({"ok": True, "pending": result})
+
+
+@bp.post("/api/frida/mac/resume/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def resume_mac_pid(pid):
+    result, err = _wrap(frida_manager.resume_mac_pid, pid)
+    if err:
+        return err
+    auth.audit_log("frida_mac_resume", {"pid": pid})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/kill/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def kill_mac_pid(pid):
+    result, err = _wrap(frida_manager.kill_mac_process, pid)
+    if err:
+        return err
+    auth.audit_log("frida_mac_kill", {"pid": pid})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/kill")
+@auth.login_required
+@auth.csrf_protect
+def kill_mac_target():
+    d = request.get_json(silent=True) or {}
+    target = d.get("target")
+    if target is None:
+        target = d.get("pid") if d.get("pid") is not None else d.get("name")
+    if target is None or str(target).strip() == "":
+        return jsonify({"ok": False, "error": "missing_target"}), 400
+    result, err = _wrap(frida_manager.kill_mac_process, target)
+    if err:
+        return err
+    auth.audit_log("frida_mac_kill", {"target": str(target)})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/input/<int:pid>")
+@auth.login_required
+@auth.csrf_protect
+def input_to_mac_process(pid):
+    d = request.get_json(silent=True) or {}
+    if "data" not in d:
+        return jsonify({"ok": False, "error": "missing_data"}), 400
+    encoding = str(d.get("encoding") or "utf8").strip().lower()
+    raw = d.get("data")
+    if encoding == "hex":
+        try:
+            data = bytes.fromhex(str(raw))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "data must be a hex string"}), 400
+    else:
+        data = raw if isinstance(raw, (bytes, bytearray)) else str(raw)
+    result, err = _wrap(frida_manager.input_to_mac_process, pid, data)
+    if err:
+        return err
+    auth.audit_log("frida_mac_input", {"pid": pid, "bytes": result.get("bytes")})
+    return jsonify(result)
+
+
+@bp.get("/api/frida/mac/events")
+@auth.login_required
+def mac_device_events():
+    after = request.args.get("after")
+    after_ts = None
+    if after not in (None, ""):
+        try:
+            after_ts = float(after)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "after must be a number (unix timestamp)"}), 400
+    limit = request.args.get("limit", 100)
+    result, err = _wrap(frida_manager.list_mac_device_events, after_ts, limit)
+    return err or jsonify({"ok": True, "events": result})
+
+
+@bp.post("/api/frida/mac/events/wire")
+@auth.login_required
+@auth.csrf_protect
+def wire_mac_device_events():
+    result, err = _wrap(frida_manager.wire_mac_device_events)
+    if err:
+        return err
+    auth.audit_log("frida_mac_events_wire", {})
+    return jsonify(result)
+
+
+@bp.post("/api/frida/mac/attach")
+@auth.login_required
+@auth.csrf_protect
+def attach_mac():
+    d = request.get_json(silent=True) or {}
+    source = d.get("script_source")
+    script_name = d.get("script_name")
+    if script_name and not source:
+        scripts = frida_manager.list_scripts()
+        if script_name not in scripts:
+            return jsonify({"ok": False, "error": "script_not_found"}), 404
+        source = scripts[script_name]["source"]
+    if not source:
+        return jsonify({"ok": False, "error": "missing_script_source"}), 400
+    target = d.get("target")
+    if d.get("spawn"):
+        target = {"spawn": d.get("spawn")}
+        opts = d.get("spawn_options") if isinstance(d.get("spawn_options"), dict) else {}
+        for key in ("argv", "env", "envp", "cwd", "stdio"):
+            if key in d:
+                target[key] = d[key]
+            elif key in opts:
+                target[key] = opts[key]
+    runtime = d.get("runtime")
+    params = d.get("params")
+    if params is not None and not isinstance(params, dict):
+        return jsonify({"ok": False, "error": "params must be a JSON object"}), 400
+    session_id, err = _wrap(frida_manager.attach_mac, target, source, runtime, params)
+    if err:
+        return err
+    auth.audit_log("frida_mac_attach", {
+        "target": target,
+        "script_name": script_name,
+        "script_sha256": frida_manager.script_hash(source),
+        "runtime": runtime,
+        "has_params": bool(params),
+        "has_spawn_options": bool(
+            isinstance(target, dict) and any(k in target for k in ("argv", "env", "envp", "cwd", "stdio"))
+        ),
+    })
+    return jsonify({"ok": True, "session_id": session_id})
+
+
 @bp.post("/api/devices/<serial>/frida/server/push")
 @auth.login_required
 @auth.csrf_protect

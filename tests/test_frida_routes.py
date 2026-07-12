@@ -17,6 +17,146 @@ def test_status_success(auth_client):
     assert res.status_code == 200
 
 
+def test_mac_status_success(auth_client):
+    with patch("routes.frida.frida_manager.get_mac_status",
+               return_value={"ok": True, "available": True, "device": {"id": "local"}}):
+        res = auth_client.get("/api/frida/mac/status")
+    assert res.status_code == 200
+    assert res.get_json()["device"] == {"id": "local"}
+
+
+def test_mac_tools_status_success(auth_client):
+    payload = {"ok": True, "installed": True, "packages": {"frida": {"version": "16.2.1"}}}
+    with patch("routes.frida.frida_manager.get_mac_tools_status", return_value=payload):
+        res = auth_client.get("/api/frida/mac/tools/status")
+    assert res.status_code == 200
+    assert res.get_json()["packages"]["frida"]["version"] == "16.2.1"
+
+
+def test_mac_tools_install_success_and_audit_log(auth_client):
+    result = {
+        "ok": True,
+        "status": {
+            "python": "/venv/bin/python",
+            "packages": {
+                "frida": {"version": "16.2.1"},
+                "frida-tools": {"version": "12.4.0"},
+            },
+        },
+    }
+    with patch("routes.frida.frida_manager.install_or_update_mac_tools", return_value=result) as mock_install, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/tools/install")
+    assert res.status_code == 200
+    mock_install.assert_called_once_with(False)
+    mock_audit.assert_called_once_with("frida_mac_tools_install", {
+        "python": "/venv/bin/python",
+        "frida_version": "16.2.1",
+        "frida_tools_version": "12.4.0",
+    })
+
+
+def test_mac_tools_update_success_and_audit_log(auth_client):
+    result = {
+        "ok": True,
+        "status": {
+            "python": "/venv/bin/python",
+            "packages": {
+                "frida": {"version": "16.3.0"},
+                "frida-tools": {"version": "12.5.0"},
+            },
+        },
+    }
+    with patch("routes.frida.frida_manager.install_or_update_mac_tools", return_value=result) as mock_update, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/tools/update")
+    assert res.status_code == 200
+    mock_update.assert_called_once_with(True)
+    mock_audit.assert_called_once_with("frida_mac_tools_update", {
+        "python": "/venv/bin/python",
+        "frida_version": "16.3.0",
+        "frida_tools_version": "12.5.0",
+    })
+
+
+def test_mac_tools_install_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    assert client.post("/api/frida/mac/tools/install").status_code == 403
+
+
+def test_mac_tools_test_failure_returns_500_and_audit_log(auth_client):
+    result = {"ok": False, "checks": {"frida_cli": {"ok": False}}}
+    with patch("routes.frida.frida_manager.test_mac_tools", return_value=result), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/tools/test")
+    assert res.status_code == 500
+    assert res.get_json()["checks"]["frida_cli"]["ok"] is False
+    mock_audit.assert_called_once_with("frida_mac_tools_test", {"ok": False})
+
+
+def test_mac_tools_update_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.install_or_update_mac_tools",
+               side_effect=adb_manager.AdbError("Frida host tools can only be managed from macOS")):
+        res = _post(auth_client, "/api/frida/mac/tools/update")
+    assert res.status_code == 400
+    assert "macOS" in res.get_json()["error"]
+
+
+def test_mac_processes_success(auth_client):
+    processes = [{"pid": 42, "name": "Messages", "parameters": {"path": "/Applications/Messages.app"}}]
+    with patch("routes.frida.frida_manager.list_mac_processes", return_value=processes):
+        res = auth_client.get("/api/frida/mac/processes")
+    assert res.status_code == 200
+    assert res.get_json()["processes"] == processes
+
+
+def test_mac_system_parameters_maps_adb_error(auth_client):
+    with patch("routes.frida.frida_manager.get_mac_system_parameters",
+               side_effect=adb_manager.AdbError("macOS host instrumentation is only available on macOS")):
+        res = auth_client.get("/api/frida/mac/system")
+    assert res.status_code == 400
+    assert "macOS host" in res.get_json()["error"]
+
+
+def test_mac_attach_with_script_name_resolves_source_and_audit_logs(auth_client):
+    with patch("routes.frida.frida_manager.list_scripts", return_value={"demo": {"source": "console.log(1);"}}), \
+         patch("routes.frida.frida_manager.attach_mac", return_value="sess-mac") as mock_attach, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/attach", {"target": "42", "script_name": "demo"})
+    assert res.status_code == 200
+    assert res.get_json()["session_id"] == "sess-mac"
+    mock_attach.assert_called_once_with("42", "console.log(1);", None, None)
+    audit_payload = mock_audit.call_args.args[1]
+    assert mock_audit.call_args.args[0] == "frida_mac_attach"
+    assert audit_payload["target"] == "42"
+    assert audit_payload["script_name"] == "demo"
+    assert "script_sha256" in audit_payload
+
+
+def test_mac_attach_requires_csrf(client):
+    client.post("/api/auth/login", data=json.dumps({"password": "test-password-123"}), content_type="application/json")
+    res = client.post("/api/frida/mac/attach", data=json.dumps({"target": "42", "script_source": "1"}), content_type="application/json")
+    assert res.status_code == 403
+
+
+def test_mac_kill_by_name_success_and_audit_log(auth_client):
+    with patch("routes.frida.frida_manager.kill_mac_process",
+               return_value={"ok": True, "name": "Messages", "killed": True}) as mock_kill, \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/kill", {"target": "Messages"})
+    assert res.status_code == 200
+    mock_kill.assert_called_once_with("Messages")
+    mock_audit.assert_called_once_with("frida_mac_kill", {"target": "Messages"})
+
+
+def test_mac_events_wire_success(auth_client):
+    with patch("routes.frida.frida_manager.wire_mac_device_events", return_value={"ok": True, "wired": True}), \
+         patch("routes.frida.auth.audit_log") as mock_audit:
+        res = _post(auth_client, "/api/frida/mac/events/wire")
+    assert res.status_code == 200
+    mock_audit.assert_called_once_with("frida_mac_events_wire", {})
+
+
 def test_push_server_success_and_audit_log(auth_client):
     with patch("routes.frida.frida_manager.push_server", return_value={"ok": True, "remote_path": "x"}), \
          patch("routes.frida.auth.audit_log") as mock_audit:

@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import importlib.metadata
 import json
 import lzma
+import platform
 import queue
 import re
+import shutil
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -20,7 +25,10 @@ from . import devices, manager, process_manager
 
 FRIDA_SERVER_REMOTE = "/data/local/tmp/frida-server"
 FRIDA_PID_REMOTE = "/data/local/tmp/frida-server.pid"
+MAC_LOCAL_SERIAL = "mac-local"
 MAX_SCRIPT_BYTES = 256 * 1024
+FRIDA_PIP_PACKAGES = ("frida", "frida-tools")
+FRIDA_CLI_TOOLS = ("frida", "frida-ps", "frida-trace", "frida-ls-devices")
 _MAX_SESSION_LOG = 5000
 _MAX_DEVICE_EVENT_LOG = 500
 _VALID_STDIO = frozenset({"inherit", "pipe"})
@@ -466,15 +474,228 @@ def _frida_device(serial: str | None = None):
     return frida.get_usb_device(timeout=5)
 
 
+def _mac_frida_device():
+    if platform.system() != "Darwin":
+        raise manager.AdbError("macOS host instrumentation is only available on macOS")
+    frida = _import_frida()
+    if not frida:
+        raise manager.AdbError("frida package not installed")
+    try:
+        return frida.get_local_device()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to get local Frida device: {exc}") from exc
+
+
+def _device_public(device) -> dict:
+    return {
+        "id": getattr(device, "id", None),
+        "name": getattr(device, "name", None),
+        "type": getattr(device, "type", None),
+    }
+
+
+def get_mac_status() -> dict:
+    """Return host macOS Frida availability without touching Android/ADB."""
+    version = _frida_version()
+    result = {
+        "ok": True,
+        "platform": platform.system(),
+        "python_installed": bool(version),
+        "python_version": version,
+        "available": False,
+        "device": None,
+    }
+    if platform.system() != "Darwin":
+        result["error"] = "macOS host instrumentation is only available on macOS"
+        return result
+    if not version:
+        result["error"] = "frida package not installed"
+        return result
+    try:
+        device = _mac_frida_device()
+        result["available"] = True
+        result["device"] = _device_public(device)
+    except manager.AdbError as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _require_macos_tools_host() -> None:
+    if platform.system() != "Darwin":
+        raise manager.AdbError("Frida host tools can only be managed from macOS")
+
+
+def _package_status(distribution: str) -> dict:
+    try:
+        version = importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        version = None
+    return {
+        "installed": version is not None,
+        "version": version,
+    }
+
+
+def _cli_status(name: str) -> dict:
+    path = shutil.which(name)
+    result = {"installed": bool(path), "path": path, "version": None, "error": None}
+    if not path:
+        return result
+    try:
+        proc = subprocess.run(
+            [path, "--version"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        output = (proc.stdout or proc.stderr or "").strip().splitlines()
+        result["version"] = output[0].strip() if output else None
+        if proc.returncode != 0:
+            result["error"] = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def get_mac_tools_status() -> dict:
+    """Return macOS Frida Python package + CLI tool availability."""
+    packages = {name: _package_status(name) for name in FRIDA_PIP_PACKAGES}
+    cli = {name: _cli_status(name) for name in FRIDA_CLI_TOOLS}
+    python_api = get_mac_status()
+    installed = bool(packages["frida"]["installed"] and packages["frida-tools"]["installed"])
+    cli_ready = all(tool["installed"] for tool in cli.values())
+    return {
+        "ok": True,
+        "platform": platform.system(),
+        "is_macos": platform.system() == "Darwin",
+        "python": sys.executable,
+        "pip_command": [sys.executable, "-m", "pip", "install", "--upgrade", *FRIDA_PIP_PACKAGES],
+        "packages": packages,
+        "cli": cli,
+        "python_api": python_api,
+        "installed": installed,
+        "cli_ready": cli_ready,
+        "needs_install": not installed,
+        "needs_update": False,
+        "can_install": platform.system() == "Darwin",
+    }
+
+
+def _trim_command_output(value: str, limit: int = 6000) -> str:
+    value = value or ""
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
+def install_or_update_mac_tools(update: bool = False) -> dict:
+    """Install or update Frida host tooling into the running Python environment."""
+    _require_macos_tools_host()
+    cmd = [sys.executable, "-m", "pip", "install"]
+    if update:
+        cmd.append("--upgrade")
+    cmd.extend(FRIDA_PIP_PACKAGES)
+    try:
+        proc = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=300,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise manager.AdbError(f"pip {'update' if update else 'install'} timed out after {exc.timeout}s") from exc
+    except OSError as exc:
+        raise manager.AdbError(f"failed to run pip: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
+        raise manager.AdbError(f"pip {'update' if update else 'install'} failed: {detail}")
+    return {
+        "ok": True,
+        "action": "update" if update else "install",
+        "command": cmd,
+        "stdout": _trim_command_output(proc.stdout),
+        "stderr": _trim_command_output(proc.stderr),
+        "status": get_mac_tools_status(),
+    }
+
+
+def test_mac_tools() -> dict:
+    """Exercise the local Frida Python API and any installed CLI tools."""
+    _require_macos_tools_host()
+    checks = {}
+    try:
+        device = _mac_frida_device()
+        checks["python_api"] = {
+            "ok": True,
+            "device": _device_public(device),
+            "system": _json_safe(dict(device.query_system_parameters() or {})),
+            "process_count": len(device.enumerate_processes()),
+        }
+    except Exception as exc:
+        checks["python_api"] = {"ok": False, "error": str(exc)}
+
+    frida_cli = shutil.which("frida")
+    if frida_cli:
+        try:
+            proc = subprocess.run(
+                [frida_cli, "--version"],
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            checks["frida_cli"] = {
+                "ok": proc.returncode == 0,
+                "version": (proc.stdout or proc.stderr or "").strip().splitlines()[0]
+                if (proc.stdout or proc.stderr or "").strip() else None,
+                "stderr": _trim_command_output(proc.stderr, 1000),
+            }
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            checks["frida_cli"] = {"ok": False, "error": str(exc)}
+    else:
+        checks["frida_cli"] = {"ok": False, "error": "frida CLI not found on PATH"}
+
+    ok = all(bool(check.get("ok")) for check in checks.values())
+    return {"ok": ok, "checks": checks, "status": get_mac_tools_status()}
+
+
+def _enumerate_processes_with_metadata(device):
+    try:
+        return device.enumerate_processes(scope="metadata")
+    except TypeError:
+        return device.enumerate_processes()
+
+
+def _process_public(proc, include_parameters: bool = False) -> dict:
+    out = {"pid": proc.pid, "name": proc.name}
+    if include_parameters:
+        out["parameters"] = _json_safe(dict(getattr(proc, "parameters", None) or {}))
+    return out
+
+
 def list_processes(serial: str) -> list[dict]:
     try:
         device = _frida_device(serial)
         return sorted(
-            [{"pid": p.pid, "name": p.name} for p in device.enumerate_processes()],
+            [_process_public(p) for p in device.enumerate_processes()],
             key=lambda p: (str(p["name"]).lower(), p["pid"]),
         )
     except Exception:
         return process_manager.list_processes(serial).get("processes", [])
+
+
+def list_mac_processes() -> list[dict]:
+    device = _mac_frida_device()
+    try:
+        processes = _enumerate_processes_with_metadata(device)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to enumerate macOS processes: {exc}") from exc
+    return sorted(
+        (_process_public(proc, include_parameters=True) for proc in processes),
+        key=lambda p: (str(p["name"]).lower(), p["pid"]),
+    )
 
 
 def _application_public(app) -> dict:
@@ -504,6 +725,18 @@ def list_applications(serial: str) -> list[dict]:
     )
 
 
+def list_mac_applications() -> list[dict]:
+    device = _mac_frida_device()
+    try:
+        apps = device.enumerate_applications()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to enumerate macOS applications: {exc}") from exc
+    return sorted(
+        (_application_public(app) for app in apps),
+        key=lambda a: (not a["running"], str(a["name"] or a["identifier"] or "").lower()),
+    )
+
+
 def get_frontmost_application(serial: str) -> dict | None:
     """Return the currently foregrounded application, or None if none is."""
     device = _frida_device(serial)
@@ -511,6 +744,15 @@ def get_frontmost_application(serial: str) -> dict | None:
         app = device.get_frontmost_application()
     except Exception as exc:
         raise manager.AdbError(f"failed to query frontmost application: {exc}") from exc
+    return _application_public(app) if app else None
+
+
+def get_mac_frontmost_application() -> dict | None:
+    device = _mac_frida_device()
+    try:
+        app = device.get_frontmost_application()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to query macOS frontmost application: {exc}") from exc
     return _application_public(app) if app else None
 
 
@@ -535,12 +777,31 @@ def enable_spawn_gating(serial: str) -> dict:
     return {"ok": True, "spawn_gating": True}
 
 
+def enable_mac_spawn_gating() -> dict:
+    device = _mac_frida_device()
+    try:
+        device.enable_spawn_gating()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to enable macOS spawn gating: {exc}") from exc
+    wire_device_events(MAC_LOCAL_SERIAL, device=device)
+    return {"ok": True, "spawn_gating": True}
+
+
 def disable_spawn_gating(serial: str) -> dict:
     device = _frida_device(serial)
     try:
         device.disable_spawn_gating()
     except Exception as exc:
         raise manager.AdbError(f"failed to disable spawn gating: {exc}") from exc
+    return {"ok": True, "spawn_gating": False}
+
+
+def disable_mac_spawn_gating() -> dict:
+    device = _mac_frida_device()
+    try:
+        device.disable_spawn_gating()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to disable macOS spawn gating: {exc}") from exc
     return {"ok": True, "spawn_gating": False}
 
 
@@ -643,6 +904,13 @@ def wire_device_events(serial: str, device=None) -> dict:
     return {"ok": True, "wired": True, "already": False}
 
 
+def wire_mac_device_events() -> dict:
+    if MAC_LOCAL_SERIAL in _wired_serials:
+        return wire_device_events(MAC_LOCAL_SERIAL)
+    device = _mac_frida_device()
+    return wire_device_events(MAC_LOCAL_SERIAL, device=device)
+
+
 def list_device_events(serial: str, after_ts: float | None = None, limit: int = 100) -> list[dict]:
     """Return recent device events (spawn/child/crash/output), newest last.
 
@@ -655,6 +923,24 @@ def list_device_events(serial: str, after_ts: float | None = None, limit: int = 
     wire_device_events(serial)
     with _device_events_lock:
         events = list(_device_events.get(serial, ()))
+    if after_ts is not None:
+        try:
+            after = float(after_ts)
+        except (TypeError, ValueError):
+            after = None
+        if after is not None:
+            events = [e for e in events if (e.get("ts") or 0) > after]
+    return events[-limit:]
+
+
+def list_mac_device_events(after_ts: float | None = None, limit: int = 100) -> list[dict]:
+    try:
+        limit = max(1, min(int(limit), _MAX_DEVICE_EVENT_LOG))
+    except (TypeError, ValueError):
+        limit = 100
+    wire_mac_device_events()
+    with _device_events_lock:
+        events = list(_device_events.get(MAC_LOCAL_SERIAL, ()))
     if after_ts is not None:
         try:
             after = float(after_ts)
@@ -687,6 +973,26 @@ def input_to_process(serial: str, pid, data) -> dict:
         device.input(value, raw)
     except Exception as exc:
         raise manager.AdbError(f"failed to send input to pid {value}: {exc}") from exc
+    return {"ok": True, "pid": value, "bytes": len(raw)}
+
+
+def input_to_mac_process(pid, data) -> dict:
+    device = _mac_frida_device()
+    value = _require_pid(pid)
+    if isinstance(data, str):
+        raw = data.encode("utf-8")
+    elif isinstance(data, (bytes, bytearray)):
+        raw = bytes(data)
+    else:
+        raise manager.AdbError("input data must be a string or bytes")
+    if not raw:
+        raise manager.AdbError("input data is empty")
+    if len(raw) > 64 * 1024:
+        raise manager.AdbError("input data is too large (max 64 KiB)")
+    try:
+        device.input(value, raw)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to send input to macOS pid {value}: {exc}") from exc
     return {"ok": True, "pid": value, "bytes": len(raw)}
 
 
@@ -753,6 +1059,18 @@ def list_pending_spawn(serial: str) -> list[dict]:
     )
 
 
+def list_mac_pending_spawn() -> list[dict]:
+    device = _mac_frida_device()
+    try:
+        pending = device.enumerate_pending_spawn()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list macOS pending spawn: {exc}") from exc
+    return sorted(
+        ({"pid": s.pid, "identifier": getattr(s, "identifier", None)} for s in pending),
+        key=lambda s: s["pid"],
+    )
+
+
 def list_pending_children(serial: str) -> list[dict]:
     """List child processes suspended by child gating, awaiting resume or kill."""
     device = _frida_device(serial)
@@ -760,6 +1078,23 @@ def list_pending_children(serial: str) -> list[dict]:
         pending = device.enumerate_pending_children()
     except Exception as exc:
         raise manager.AdbError(f"failed to list pending children: {exc}") from exc
+    return sorted(
+        ({
+            "pid": c.pid,
+            "parent_pid": getattr(c, "parent_pid", None),
+            "identifier": getattr(c, "identifier", None),
+            "path": getattr(c, "path", None),
+        } for c in pending),
+        key=lambda c: c["pid"],
+    )
+
+
+def list_mac_pending_children() -> list[dict]:
+    device = _mac_frida_device()
+    try:
+        pending = device.enumerate_pending_children()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to list macOS pending children: {exc}") from exc
     return sorted(
         ({
             "pid": c.pid,
@@ -779,6 +1114,16 @@ def resume_pid(serial: str, pid) -> dict:
         device.resume(value)
     except Exception as exc:
         raise manager.AdbError(f"failed to resume pid {value}: {exc}") from exc
+    return {"ok": True, "pid": value, "resumed": True}
+
+
+def resume_mac_pid(pid) -> dict:
+    device = _mac_frida_device()
+    value = _require_pid(pid)
+    try:
+        device.resume(value)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to resume macOS pid {value}: {exc}") from exc
     return {"ok": True, "pid": value, "resumed": True}
 
 
@@ -810,6 +1155,24 @@ def kill_process(serial: str, target) -> dict:
     return result
 
 
+def kill_mac_process(target) -> dict:
+    device = _mac_frida_device()
+    raw = str(target if target is not None else "").strip()
+    if not raw:
+        raise manager.AdbError("missing kill target (pid or name)")
+    if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+        value = _require_pid(raw)
+        key = "pid"
+    else:
+        value = raw
+        key = "name"
+    try:
+        device.kill(value)
+    except Exception as exc:
+        raise manager.AdbError(f"failed to kill macOS {key} {value}: {exc}") from exc
+    return {"ok": True, "killed": True, key: value}
+
+
 def get_system_parameters(serial: str) -> dict:
     """Return the device details Frida reports (os, arch, platform, access, name)."""
     device = _frida_device(serial)
@@ -817,6 +1180,15 @@ def get_system_parameters(serial: str) -> dict:
         params = device.query_system_parameters()
     except Exception as exc:
         raise manager.AdbError(f"failed to query system parameters: {exc}") from exc
+    return _json_safe(dict(params or {}))
+
+
+def get_mac_system_parameters() -> dict:
+    device = _mac_frida_device()
+    try:
+        params = device.query_system_parameters()
+    except Exception as exc:
+        raise manager.AdbError(f"failed to query macOS system parameters: {exc}") from exc
     return _json_safe(dict(params or {}))
 
 
@@ -849,6 +1221,34 @@ def get_process(serial: str, query) -> dict:
         raise
     except Exception as exc:
         raise manager.AdbError(f"process lookup failed: {exc}") from exc
+    return {
+        "pid": proc.pid,
+        "name": proc.name,
+        "parameters": _json_safe(dict(getattr(proc, "parameters", None) or {})),
+    }
+
+
+def get_mac_process(query) -> dict:
+    device = _mac_frida_device()
+    q = str(query or "").strip()
+    if not q:
+        raise manager.AdbError("missing process name or pid")
+    try:
+        if q.isdigit():
+            pid = int(q)
+            procs = _enumerate_processes_with_metadata(device)
+            proc = next((p for p in procs if p.pid == pid), None)
+            if proc is None:
+                raise manager.AdbError(f"no process with pid {pid}")
+        else:
+            try:
+                proc = device.get_process(q, scope="metadata")
+            except TypeError:
+                proc = device.get_process(q)
+    except manager.AdbError:
+        raise
+    except Exception as exc:
+        raise manager.AdbError(f"macOS process lookup failed: {exc}") from exc
     return {
         "pid": proc.pid,
         "name": proc.name,
@@ -968,6 +1368,16 @@ def inject_script_params(script_source: str, params: dict | None) -> str:
     return combined
 
 
+def _normalize_attach_inputs(script_source: str, runtime: str | None, params: dict | None) -> tuple[str, str | None]:
+    if not script_source or len(script_source.encode("utf-8")) > MAX_SCRIPT_BYTES:
+        raise manager.AdbError("script source is empty or too large")
+    if runtime is not None:
+        runtime = str(runtime).strip().lower() or None
+    if runtime is not None and runtime not in _VALID_RUNTIMES:
+        raise manager.AdbError(f"invalid runtime '{runtime}' (expected qjs or v8)")
+    return inject_script_params(script_source, params), runtime
+
+
 def attach(
     serial: str,
     target,
@@ -975,15 +1385,30 @@ def attach(
     runtime: str | None = None,
     params: dict | None = None,
 ) -> str:
-    if not script_source or len(script_source.encode("utf-8")) > MAX_SCRIPT_BYTES:
-        raise manager.AdbError("script source is empty or too large")
-    if runtime is not None:
-        runtime = str(runtime).strip().lower() or None
-    if runtime is not None and runtime not in _VALID_RUNTIMES:
-        raise manager.AdbError(f"invalid runtime '{runtime}' (expected qjs or v8)")
-    script_source = inject_script_params(script_source, params)
+    script_source, runtime = _normalize_attach_inputs(script_source, runtime, params)
     check_version_compatibility(serial)
     device = _frida_device(serial)
+    return _attach_to_device(serial, device, target, script_source, runtime)
+
+
+def attach_mac(
+    target,
+    script_source: str,
+    runtime: str | None = None,
+    params: dict | None = None,
+) -> str:
+    script_source, runtime = _normalize_attach_inputs(script_source, runtime, params)
+    device = _mac_frida_device()
+    return _attach_to_device(MAC_LOCAL_SERIAL, device, target, script_source, runtime)
+
+
+def _attach_to_device(
+    serial: str,
+    device,
+    target,
+    script_source: str,
+    runtime: str | None = None,
+) -> str:
     wire_device_events(serial, device=device)
     spawned_pid = None
     if isinstance(target, dict):

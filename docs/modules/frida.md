@@ -11,7 +11,7 @@
 
 ## Overview
 
-Manages `frida-server` on the device and drives the `frida` Python API for process listing, attach/spawn, message streaming, and a small script store.
+Manages Android `frida-server`, drives the `frida` Python API for process listing, attach/spawn, message streaming, and a small script store, and exposes a host macOS Frida surface through the local Frida device.
 
 ## Files
 
@@ -24,6 +24,27 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 | Method | Route | Description |
 | --- | --- | --- |
 | GET | `/api/frida/status` | Frida package status and per-device server status. |
+| GET | `/api/frida/mac/status` | Host macOS Frida package/local-device status. |
+| GET | `/api/frida/mac/tools/status` | Host macOS package/CLI status for `frida` and `frida-tools`. |
+| POST | `/api/frida/mac/tools/install` | Install `frida` and `frida-tools` into the API server's Python environment. |
+| POST | `/api/frida/mac/tools/update` | Upgrade `frida` and `frida-tools` through pip. |
+| POST | `/api/frida/mac/tools/test` | Exercise the local Frida Python API and installed `frida` CLI. |
+| GET | `/api/frida/mac/processes` | List local macOS processes with metadata when available. |
+| GET | `/api/frida/mac/applications` | List local macOS applications (identifier, name, running/pid). |
+| GET | `/api/frida/mac/frontmost` | The foreground macOS application, or null. |
+| GET | `/api/frida/mac/system` | Local Frida system parameters for the Mac. |
+| GET | `/api/frida/mac/process?q=<name\|pid>` | One macOS process with metadata. |
+| POST | `/api/frida/mac/spawn-gating/enable` | Suspend newly spawned local processes. |
+| POST | `/api/frida/mac/spawn-gating/disable` | Stop suspending newly spawned local processes. |
+| GET | `/api/frida/mac/pending-spawn` | List local spawn-gated processes awaiting resume/kill. |
+| GET | `/api/frida/mac/pending-children` | List local child-gated processes awaiting resume/kill. |
+| GET | `/api/frida/mac/events` | Recent local Frida device events; supports `after`/`limit`. |
+| POST | `/api/frida/mac/events/wire` | Subscribe to local Frida device signals. |
+| POST | `/api/frida/mac/resume/<pid>` | Resume a suspended local process. |
+| POST | `/api/frida/mac/kill/<pid>` | Kill a local process by PID through Frida. |
+| POST | `/api/frida/mac/kill` | Kill a local process by PID or name (`target` / `pid` / `name` in body). |
+| POST | `/api/frida/mac/input/<pid>` | Feed stdin bytes to a local spawned process. |
+| POST | `/api/frida/mac/attach` | Attach to or spawn a local macOS target with a script. Optional `runtime`, `params`, and spawn options match the Android attach route. |
 | POST | `/api/devices/<serial>/frida/server/push` | Push frida-server to the device. |
 | POST | `/api/devices/<serial>/frida/server/start` | Start frida-server (pushing first if needed). |
 | POST | `/api/devices/<serial>/frida/server/stop` | Stop frida-server. |
@@ -63,6 +84,8 @@ Manages `frida-server` on the device and drives the `frida` Python API for proce
 ## Behavior
 
 - Provides Frida Python package status, matching frida-server URL resolution/cache/download, server push/start/stop, Frida process listing with ADB fallback, attach/spawn, message streaming, detach, and script store CRUD.
+- The macOS host routes use `frida.get_local_device()` and the same session registry/message streaming/RPC/export endpoints as Android. They do not run ADB, download `frida-server`, or perform Android client/server version checks.
+- The macOS host tools routes are only active when the API process is running on macOS. Install/update uses the running interpreter (`sys.executable -m pip install [--upgrade] frida frida-tools`), records bounded pip output, refreshes package/CLI status, and audit-logs versions rather than command output. The UI exposes these controls in the Frida tab's Mac scope.
 - Classic frida-server operations require `manager.has_root_shell()`.
 - `get_status()` reports each device's on-device `server_version` (from `frida-server --version`) and a `version_match` flag against the installed Python `frida`. `attach()` calls `check_version_compatibility()` first and raises a clear error on a major.minor divergence (the frida wire protocol is tied to major.minor), rather than letting attach fail with a cryptic engine error.
 - Script names are constrained, default templates are read-only, and script size is capped at 256 KiB. The bundled read-only templates are `template-method-tracer`, `template-ssl-pinning-bypass` (OkHttp/Conscrypt/custom TrustManager/WebView, each hook guarded so unused stacks are skipped), and `template-root-detection-bypass` (File.exists / Runtime.exec / SystemProperties / Build.TAGS / PackageManager / RootBeer). Both bypass agents emit `send()` telemetry per neutralized check and are for authorized testing only.

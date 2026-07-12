@@ -203,6 +203,187 @@ def test_attach_passes_runtime_to_create_script(monkeypatch):
     frida_manager.detach(session_id)
 
 
+def test_mac_status_reports_local_device(monkeypatch):
+    class FakeDevice:
+        id = "local"
+        name = "Local System"
+        type = "local"
+
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_local_device=lambda: FakeDevice(),
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+
+    status = frida_manager.get_mac_status()
+
+    assert status["available"] is True
+    assert status["python_version"] == "16.2.1"
+    assert status["device"] == {"id": "local", "name": "Local System", "type": "local"}
+
+
+def test_mac_status_is_unavailable_off_macos(monkeypatch):
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(frida_manager, "_frida_version", lambda: "16.2.1")
+
+    status = frida_manager.get_mac_status()
+
+    assert status["available"] is False
+    assert status["error"] == "macOS host instrumentation is only available on macOS"
+
+
+def test_mac_tools_status_reports_packages_and_cli(monkeypatch):
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(frida_manager, "get_mac_status", lambda: {"ok": True, "available": True})
+    monkeypatch.setattr(frida_manager.importlib.metadata, "version",
+                        lambda name: {"frida": "16.2.1", "frida-tools": "12.4.0"}[name])
+    monkeypatch.setattr(frida_manager.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+
+    def fake_run(argv, **kwargs):
+        return types.SimpleNamespace(returncode=0, stdout="16.2.1\n", stderr="")
+
+    monkeypatch.setattr(frida_manager.subprocess, "run", fake_run)
+
+    status = frida_manager.get_mac_tools_status()
+
+    assert status["installed"] is True
+    assert status["cli_ready"] is True
+    assert status["packages"]["frida-tools"]["version"] == "12.4.0"
+    assert status["cli"]["frida"]["path"] == "/usr/local/bin/frida"
+
+
+def test_install_mac_tools_rejects_non_macos(monkeypatch):
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Linux")
+    with pytest.raises(manager.AdbError, match="macOS"):
+        frida_manager.install_or_update_mac_tools()
+
+
+def test_update_mac_tools_runs_pip_upgrade(monkeypatch):
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(frida_manager, "get_mac_tools_status", lambda: {"ok": True, "installed": True})
+    calls = {}
+
+    def fake_run(argv, **kwargs):
+        calls["argv"] = argv
+        return types.SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(frida_manager.subprocess, "run", fake_run)
+
+    result = frida_manager.install_or_update_mac_tools(update=True)
+
+    assert result["ok"] is True
+    assert "--upgrade" in calls["argv"]
+    assert calls["argv"][-2:] == ["frida", "frida-tools"]
+
+
+def test_test_mac_tools_returns_cli_failure(monkeypatch):
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(frida_manager, "get_mac_tools_status", lambda: {"ok": True})
+    monkeypatch.setattr(frida_manager.shutil, "which", lambda name: None)
+
+    class FakeDevice:
+        id = "local"
+        name = "Local System"
+        type = "local"
+
+        def query_system_parameters(self):
+            return {"os": {"id": "macos"}}
+
+        def enumerate_processes(self):
+            return [types.SimpleNamespace(pid=1, name="launchd")]
+
+    monkeypatch.setattr(frida_manager, "_mac_frida_device", lambda: FakeDevice())
+
+    result = frida_manager.test_mac_tools()
+
+    assert result["ok"] is False
+    assert result["checks"]["python_api"]["ok"] is True
+    assert result["checks"]["frida_cli"]["error"] == "frida CLI not found on PATH"
+
+
+def test_list_mac_processes_uses_local_device_metadata(monkeypatch):
+    proc = types.SimpleNamespace(pid=42, name="Messages", parameters={"path": "/System/Applications/Messages.app"})
+
+    class FakeDevice:
+        def enumerate_processes(self, scope=None):
+            assert scope == "metadata"
+            return [proc]
+
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_local_device=lambda: FakeDevice(),
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+
+    assert frida_manager.list_mac_processes() == [{
+        "pid": 42,
+        "name": "Messages",
+        "parameters": {"path": "/System/Applications/Messages.app"},
+    }]
+
+
+def test_attach_mac_uses_local_device_and_skips_android_version_check(monkeypatch):
+    frida_manager._sessions.clear()
+    frida_manager._wired_serials.discard(frida_manager.MAC_LOCAL_SERIAL)
+    version_checked = {"called": False}
+
+    class FakeScript:
+        def on(self, event, handler):
+            pass
+
+        def set_log_handler(self, handler):
+            pass
+
+        def load(self):
+            pass
+
+        def unload(self):
+            pass
+
+    class FakeSession:
+        def create_script(self, source, **kwargs):
+            return FakeScript()
+
+        def on(self, event, handler):
+            pass
+
+        def detach(self):
+            pass
+
+        def is_detached(self):
+            return False
+
+    class FakeDevice:
+        def __init__(self):
+            self.attached_to = None
+
+        def attach(self, target):
+            self.attached_to = target
+            return FakeSession()
+
+        def on(self, event, handler):
+            pass
+
+    fake_device = FakeDevice()
+    fake_frida = types.SimpleNamespace(
+        __version__="16.2.1",
+        get_local_device=lambda: fake_device,
+    )
+    monkeypatch.setitem(sys.modules, "frida", fake_frida)
+    monkeypatch.setattr(frida_manager.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(frida_manager, "check_version_compatibility",
+                        lambda serial: version_checked.update(called=True))
+
+    session_id = frida_manager.attach_mac("42", "console.log('mac');")
+
+    assert fake_device.attached_to == 42
+    assert version_checked["called"] is False
+    assert frida_manager._sessions[session_id]["serial"] == frida_manager.MAC_LOCAL_SERIAL
+    frida_manager.detach(session_id)
+
+
 def test_attach_rejects_invalid_runtime():
     frida_manager._sessions.clear()
     with pytest.raises(manager.AdbError, match="invalid runtime"):

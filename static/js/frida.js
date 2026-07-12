@@ -8,10 +8,12 @@ Object.assign(TIP_REGISTRY, {
 });
 
 let FRIDA_STATUS = null;
+let FRIDA_MAC_TOOLS_STATUS = null;
 let FRIDA_PROCESSES = [];
 let FRIDA_SELECTED_PID = null;
 let FRIDA_SPAWN_PACKAGE = '';
 let FRIDA_TARGET_MODE = 'processes';
+let FRIDA_SCOPE = localStorage.getItem('adbpanel.frida.scope') || 'android';
 let FRIDA_APPLICATIONS = [];
 let FRIDA_SESSIONS = [];
 let FRIDA_EVENT_LOG = []; // client-side ring of device events for the Events panel
@@ -28,24 +30,67 @@ function selectedFridaDeviceStatus(serial) {
   return FRIDA_STATUS && (FRIDA_STATUS.devices || []).find((d) => d.serial === serial);
 }
 
+function fridaIsMacScope() {
+  return FRIDA_SCOPE === 'mac';
+}
+
+function fridaScopeKey(serial) {
+  return fridaIsMacScope() ? 'mac' : `android:${serial || ''}`;
+}
+
+function fridaApiBase(serial) {
+  if (fridaIsMacScope()) return '/api/frida/mac';
+  return `/api/devices/${encodeURIComponent(serial)}/frida`;
+}
+
+function fridaApiUrl(serial, path = '') {
+  return `${fridaApiBase(serial)}${path}`;
+}
+
+function fridaRequireAndroidDevice(serial, device) {
+  if (fridaIsMacScope()) return true;
+  return Boolean(serial && device && device.state === 'device');
+}
+
+function setFridaScope(scope) {
+  FRIDA_SCOPE = scope === 'mac' ? 'mac' : 'android';
+  localStorage.setItem('adbpanel.frida.scope', FRIDA_SCOPE);
+  FRIDA_SELECTED_PID = null;
+  FRIDA_EVENT_LOG = [];
+  if (fridaDeviceEventTimer) {
+    clearInterval(fridaDeviceEventTimer);
+    fridaDeviceEventTimer = null;
+    fridaDeviceEventSerial = null;
+  }
+  renderFridaTab();
+}
+
 function renderFridaTab() {
   const pane = document.getElementById('tab-frida');
   if (!pane) return;
   const serial = getSelectedSerial();
   const device = getSelectedDevice();
-  if (!serial || !device || device.state !== 'device') {
-    pane.innerHTML = `<div class="alert warn">Select an authorized, online device for Frida instrumentation.</div>`;
-    return;
-  }
+  if (!fridaRequireAndroidDevice(serial, device) && FRIDA_SCOPE === 'android') FRIDA_SCOPE = 'mac';
   FRIDA_SELECTED_PID = null;
+  const modeLabel = fridaIsMacScope() ? 'Mac host' : 'Android device';
+  const scopeDescription = fridaIsMacScope()
+    ? 'Install/update host Frida tooling, attach to local macOS processes, and run scripts through the local Frida device.'
+    : 'Provision frida-server, attach or spawn a target, and run a script against it.';
   pane.innerHTML = `
     <div class="panel-page">
       <div class="panel-header">
         <h2>Frida</h2>
         <p class="muted">
-          Provision frida-server, attach or spawn a target, and run a script against it.
+          ${escapeHtml(scopeDescription)}
           <button type="button" class="tip-btn" data-tip-key="frida.warning" aria-label="Help">?</button>
         </p>
+        <div class="toolbar-row" style="margin-top:10px;">
+          <div class="btn-group" role="tablist" aria-label="Frida target scope">
+            <button id="frida-scope-android" class="${!fridaIsMacScope() ? 'active' : ''}" title="Use a selected Android device">Android</button>
+            <button id="frida-scope-mac" class="${fridaIsMacScope() ? 'active' : ''}" title="Use this Mac as the local Frida target">Mac</button>
+          </div>
+          <span class="badge ${fridaIsMacScope() ? 'blue' : 'green'}">${escapeHtml(modeLabel)}</span>
+        </div>
       </div>
       <section class="panel-section subnav-pinned">
         <div class="section-head">
@@ -97,6 +142,8 @@ function renderFridaTab() {
   document.getElementById('frida-export-bin-btn').addEventListener('click', exportFridaBinaries);
   document.getElementById('frida-sessions-refresh-btn').addEventListener('click', () => refreshFridaSessionsList(true));
   document.getElementById('frida-session-select').addEventListener('change', onFridaSessionSelect);
+  document.getElementById('frida-scope-android').addEventListener('click', () => setFridaScope('android'));
+  document.getElementById('frida-scope-mac').addEventListener('click', () => setFridaScope('mac'));
   createSubNav(document.getElementById('frida-subnav'), 'adbpanel.subnav.frida', [
     { key: 'status', label: 'Status', render: (body) => renderFridaStatusView(body, serial) },
     { key: 'target', label: 'Target', render: (body) => renderFridaTargetView(body, serial) },
@@ -109,6 +156,15 @@ function renderFridaTab() {
 }
 
 function renderFridaStatusView(body, serial) {
+  if (fridaIsMacScope()) {
+    renderFridaMacStatusView(body);
+    return;
+  }
+  const device = getSelectedDevice();
+  if (!fridaRequireAndroidDevice(serial, device)) {
+    body.innerHTML = `<div class="alert warn">Select an authorized, online Android device or switch to Mac mode.</div>`;
+    return;
+  }
   body.innerHTML = `
     <section class="panel-section">
       <div id="frida-status-card" class="muted">Checking Frida status...</div>
@@ -127,6 +183,161 @@ function renderFridaStatusView(body, serial) {
   document.getElementById('frida-stop-btn').addEventListener('click', () => fridaServerAction(serial, 'stop'));
   document.getElementById('frida-sysinfo-btn').addEventListener('click', () => loadFridaSystemInfo(serial));
   refreshFridaStatus(serial);
+}
+
+function renderFridaMacStatusView(body) {
+  body.innerHTML = `
+    <section class="panel-section">
+      <div class="section-head">
+        <div>
+          <h3>Host tools</h3>
+          <p class="section-desc">Python package, CLI tools, and local Frida device availability on this Mac.</p>
+        </div>
+      </div>
+      <div id="frida-mac-tools-card" class="muted">Checking Frida host tools...</div>
+      <div class="toolbar-row" style="margin-top:10px;">
+        <button id="frida-mac-tools-refresh-btn">Refresh</button>
+        <button id="frida-mac-tools-install-btn">Install</button>
+        <button id="frida-mac-tools-update-btn">Update</button>
+        <button id="frida-mac-tools-test-btn">Test</button>
+        <button id="frida-mac-sysinfo-btn">Mac info</button>
+      </div>
+      <div id="frida-mac-tools-output" style="display:none; margin-top:10px;"></div>
+      <div id="frida-sysinfo" style="display:none; margin-top:10px;"></div>
+    </section>`;
+  document.getElementById('frida-mac-tools-refresh-btn').addEventListener('click', refreshFridaMacToolsStatus);
+  document.getElementById('frida-mac-tools-install-btn').addEventListener('click', () => runFridaMacToolsAction('install'));
+  document.getElementById('frida-mac-tools-update-btn').addEventListener('click', () => runFridaMacToolsAction('update'));
+  document.getElementById('frida-mac-tools-test-btn').addEventListener('click', testFridaMacTools);
+  document.getElementById('frida-mac-sysinfo-btn').addEventListener('click', () => loadFridaSystemInfo(''));
+  refreshFridaMacToolsStatus();
+}
+
+function renderFridaMacToolsCard(status) {
+  const card = document.getElementById('frida-mac-tools-card');
+  if (!card) return;
+  const pkg = status.packages || {};
+  const cli = status.cli || {};
+  const packageRows = Object.keys(pkg).map((name) => `
+    <tr>
+      <td><code>${escapeHtml(name)}</code></td>
+      <td>${pkg[name].installed ? '<span class="badge green">installed</span>' : '<span class="badge red">missing</span>'}</td>
+      <td>${escapeHtml(pkg[name].version || '-')}</td>
+    </tr>`).join('');
+  const cliRows = Object.keys(cli).map((name) => `
+    <tr>
+      <td><code>${escapeHtml(name)}</code></td>
+      <td>${cli[name].installed ? '<span class="badge green">found</span>' : '<span class="badge yellow">missing</span>'}</td>
+      <td>${escapeHtml(cli[name].version || cli[name].path || cli[name].error || '-')}</td>
+    </tr>`).join('');
+  const api = status.python_api || {};
+  const apiBadge = api.available
+    ? '<span class="badge green">local device ready</span>'
+    : `<span class="badge ${status.is_macos ? 'yellow' : 'red'}">${escapeHtml(api.error || 'not ready')}</span>`;
+  card.innerHTML = `
+    <div class="toolbar-row" style="align-items:center;">
+      <span class="badge ${status.installed ? 'green' : 'red'}">${status.installed ? 'packages installed' : 'packages missing'}</span>
+      <span class="badge ${status.cli_ready ? 'green' : 'yellow'}">${status.cli_ready ? 'CLI ready' : 'CLI incomplete'}</span>
+      ${apiBadge}
+      <span class="muted">${escapeHtml(status.python || '')}</span>
+    </div>
+    <div class="table-wrap auto-height" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Package</th><th>Status</th><th>Version</th></tr></thead>
+        <tbody>${packageRows || '<tr><td colspan="3" class="muted">No package data</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="table-wrap auto-height" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>CLI</th><th>Status</th><th>Version / path</th></tr></thead>
+        <tbody>${cliRows || '<tr><td colspan="3" class="muted">No CLI data</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  ['frida-mac-tools-install-btn', 'frida-mac-tools-update-btn', 'frida-mac-tools-test-btn'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.disabled = !status.can_install;
+      btn.title = status.can_install ? '' : 'Host Frida tooling can only be managed when this API is running on macOS.';
+    }
+  });
+}
+
+async function refreshFridaMacToolsStatus() {
+  const card = document.getElementById('frida-mac-tools-card');
+  if (card) card.innerHTML = '<p class="muted">Checking...</p>';
+  try {
+    const res = await apiFetch('/api/frida/mac/tools/status');
+    const status = await res.json();
+    FRIDA_MAC_TOOLS_STATUS = status;
+    renderFridaMacToolsCard(status);
+    return status;
+  } catch (err) {
+    if (card) card.innerHTML = `<span class="badge red">Error</span> ${escapeHtml(String(err))}`;
+    return null;
+  }
+}
+
+async function runFridaMacToolsAction(action) {
+  const out = document.getElementById('frida-mac-tools-output');
+  if (out) {
+    out.style.display = 'block';
+    out.innerHTML = `<p class="muted">${action === 'update' ? 'Updating' : 'Installing'} Frida tools...</p>`;
+  }
+  try {
+    const res = await apiFetch(`/api/frida/mac/tools/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) {
+      toast(`Frida tools ${action} failed: ${data.error}`, 'error');
+      if (out) out.innerHTML = `<pre class="shell-output">${escapeHtml(data.error || 'failed')}</pre>`;
+      return;
+    }
+    toast(`Frida tools ${action} complete`, 'success');
+    if (out) {
+      out.innerHTML = `
+        <div class="section-head"><div><h3>${action === 'update' ? 'Update' : 'Install'} output</h3></div></div>
+        <pre class="shell-output" style="max-height:260px;">${escapeHtml((data.stdout || data.stderr || '').trim() || 'done')}</pre>`;
+    }
+    FRIDA_MAC_TOOLS_STATUS = data.status;
+    renderFridaMacToolsCard(data.status);
+  } catch (err) {
+    toast(`Frida tools ${action} failed: ${err}`, 'error');
+    if (out) out.innerHTML = `<pre class="shell-output">${escapeHtml(String(err))}</pre>`;
+  }
+}
+
+async function testFridaMacTools() {
+  const out = document.getElementById('frida-mac-tools-output');
+  if (out) {
+    out.style.display = 'block';
+    out.innerHTML = '<p class="muted">Testing Frida host tools...</p>';
+  }
+  try {
+    const res = await apiFetch('/api/frida/mac/tools/test', { method: 'POST' });
+    const data = await res.json();
+    const checks = data.checks || {};
+    const rows = Object.keys(checks).map((name) => `
+      <tr>
+        <td><code>${escapeHtml(name)}</code></td>
+        <td>${checks[name].ok ? '<span class="badge green">ok</span>' : '<span class="badge red">failed</span>'}</td>
+        <td><pre class="shell-output" style="margin:0; max-height:120px;">${escapeHtml(JSON.stringify(checks[name], null, 2))}</pre></td>
+      </tr>`).join('');
+    if (out) {
+      out.innerHTML = `
+        <div class="section-head"><div><h3>Tool test</h3></div></div>
+        <div class="table-wrap auto-height"><table>
+          <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`;
+    }
+    toast(data.ok ? 'Frida host tools test passed' : 'Frida host tools test found issues', data.ok ? 'success' : 'error');
+    if (data.status) {
+      FRIDA_MAC_TOOLS_STATUS = data.status;
+      renderFridaMacToolsCard(data.status);
+    }
+  } catch (err) {
+    toast(`Frida tools test failed: ${err}`, 'error');
+    if (out) out.innerHTML = `<pre class="shell-output">${escapeHtml(String(err))}</pre>`;
+  }
 }
 
 function renderKeyValueTable(obj, preferKeys) {
@@ -154,9 +365,9 @@ async function loadFridaSystemInfo(serial) {
   const out = document.getElementById('frida-sysinfo');
   if (!out) return;
   out.style.display = 'block';
-  out.innerHTML = '<p class="muted">Querying device...</p>';
+  out.innerHTML = `<p class="muted">Querying ${fridaIsMacScope() ? 'Mac' : 'device'}...</p>`;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/system`);
+    const res = await apiFetch(fridaApiUrl(serial, '/system'));
     const data = await res.json();
     if (!data.ok) { out.innerHTML = `<p class="muted">Error: ${escapeHtml(data.error || 'failed')}</p>`; return; }
     const sys = data.system || {};
@@ -173,6 +384,11 @@ async function loadFridaSystemInfo(serial) {
 }
 
 function renderFridaTargetView(body, serial) {
+  const device = getSelectedDevice();
+  if (!fridaRequireAndroidDevice(serial, device)) {
+    body.innerHTML = `<div class="alert warn">Select an authorized, online Android device or switch to Mac mode.</div>`;
+    return;
+  }
   body.innerHTML = `
     <section class="panel-section">
       <div class="toolbar-row">
@@ -333,7 +549,7 @@ async function loadFridaPendingChildren(serial) {
   const body = document.getElementById('frida-pending-children-body');
   if (body) body.innerHTML = `<tr><td colspan="4">Loading...</td></tr>`;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/pending-children`);
+    const res = await apiFetch(fridaApiUrl(serial, '/pending-children'));
     const data = await res.json();
     if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
     const rows = data.pending || [];
@@ -361,7 +577,7 @@ async function loadFridaPendingChildren(serial) {
 
 async function setFridaSpawnGating(serial, enable) {
   const action = enable ? 'enable' : 'disable';
-  const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/spawn-gating/${action}`, { method: 'POST' });
+  const res = await apiFetch(fridaApiUrl(serial, `/spawn-gating/${action}`), { method: 'POST' });
   const data = await res.json();
   toast(data.ok ? `Spawn gating ${action}d` : `Gating ${action} failed: ${data.error}`, data.ok ? 'success' : 'error');
   if (data.ok && enable) loadFridaPendingSpawn(serial);
@@ -371,7 +587,7 @@ async function loadFridaPendingSpawn(serial) {
   const body = document.getElementById('frida-pending-body');
   if (body) body.innerHTML = `<tr><td colspan="3">Loading...</td></tr>`;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/pending-spawn`);
+    const res = await apiFetch(fridaApiUrl(serial, '/pending-spawn'));
     const data = await res.json();
     if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="3" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
     const rows = data.pending || [];
@@ -397,7 +613,7 @@ async function loadFridaPendingSpawn(serial) {
 }
 
 async function fridaPidAction(serial, action, pid) {
-  const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/${action}/${encodeURIComponent(pid)}`, { method: 'POST' });
+  const res = await apiFetch(fridaApiUrl(serial, `/${action}/${encodeURIComponent(pid)}`), { method: 'POST' });
   const data = await res.json();
   toast(data.ok ? `${action} pid ${pid} ok` : `${action} failed: ${data.error}`, data.ok ? 'success' : 'error');
   loadFridaPendingSpawn(serial);
@@ -411,7 +627,7 @@ async function killFridaTarget(serial, targetOverride) {
   if (!target) { toast('Enter a PID or process name to kill', 'error'); return; }
   if (!confirm(`Kill ${target}?`)) return;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/kill`, {
+    const res = await apiFetch(fridaApiUrl(serial, '/kill'), {
       method: 'POST',
       body: { target },
     });
@@ -446,6 +662,15 @@ function renderFridaTargetTable() {
 }
 
 function renderFridaScriptView(body, serial) {
+  const device = getSelectedDevice();
+  if (!fridaRequireAndroidDevice(serial, device)) {
+    body.innerHTML = `<div class="alert warn">Select an authorized, online Android device or switch to Mac mode.</div>`;
+    return;
+  }
+  const spawnPlaceholder = fridaIsMacScope() ? 'Spawn by program path or bundle id' : 'Spawn by package name';
+  const attachHelp = fridaIsMacScope()
+    ? 'Attach to the Mac process selected on the Target tab, or spawn a local executable/bundle identifier.'
+    : 'Attach to the process selected on the Target tab, or spawn a fresh package.';
   body.innerHTML = `
     <section class="panel-section">
       <div class="toolbar-row">
@@ -458,7 +683,7 @@ function renderFridaScriptView(body, serial) {
       <p id="frida-script-desc" class="section-desc muted" style="margin:6px 0 8px;"></p>
       <textarea id="frida-script-editor" spellcheck="false" style="width:100%; min-height:280px; font-family:Consolas, monospace;"></textarea>
       <div class="section-head" style="margin-top:14px;">
-        <div><h3>Attach</h3><p class="section-desc">Attach to the process selected on the Target tab, or spawn a fresh package.</p></div>
+        <div><h3>Attach</h3><p class="section-desc">${escapeHtml(attachHelp)}</p></div>
       </div>
       <div class="toolbar-row">
         <label class="muted" for="frida-runtime-select" title="JS runtime for create_script">Runtime</label>
@@ -469,7 +694,7 @@ function renderFridaScriptView(body, serial) {
         </select>
         <input type="text" id="frida-script-params" placeholder='PARAMS JSON, e.g. {"className":"com.example.App"}' style="flex:1; min-width:220px;" title="Injected as const PARAMS = {...} before the script">
         <button id="frida-attach-selected-btn">Attach selected (${escapeHtml(String(FRIDA_SELECTED_PID || '—'))})</button>
-        <input type="text" id="frida-spawn-package" placeholder="Spawn by package name" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
+        <input type="text" id="frida-spawn-package" placeholder="${escapeHtml(spawnPlaceholder)}" value="${escapeHtml(FRIDA_SPAWN_PACKAGE)}" style="flex:1; min-width:200px;">
         <button id="frida-spawn-btn">Spawn + attach</button>
       </div>
       <div class="section-head" style="margin-top:10px;">
@@ -571,7 +796,7 @@ async function loadFridaProcesses(serial) {
   const body = document.getElementById('frida-process-body');
   if (body) body.innerHTML = `<tr><td colspan="3">Loading...</td></tr>`;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/processes`);
+    const res = await apiFetch(fridaApiUrl(serial, '/processes'));
     const data = await res.json();
     FRIDA_PROCESSES = data.processes || [];
     renderFridaProcessTable();
@@ -609,25 +834,25 @@ function renderFridaProcessTable() {
   body.querySelectorAll('button[data-frida-killproc]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const serial = getSelectedSerial();
-      if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
+      if ((serial || fridaIsMacScope()) && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
     });
   });
   body.querySelectorAll('button[data-frida-killname]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const serial = getSelectedSerial();
       const name = btn.dataset.fridaKillname;
-      if (serial && name) killFridaTarget(serial, name);
+      if ((serial || fridaIsMacScope()) && name) killFridaTarget(serial, name);
     });
   });
 }
 
 async function loadFridaProcessDetail(serial, query) {
   const out = document.getElementById('frida-target-detail');
-  if (!serial || !out) return;
+  if ((!serial && !fridaIsMacScope()) || !out) return;
   out.style.display = 'block';
   out.innerHTML = '<p class="muted">Loading process metadata...</p>';
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/process?q=${encodeURIComponent(query)}`);
+    const res = await apiFetch(`${fridaApiUrl(serial, '/process')}?q=${encodeURIComponent(query)}`);
     const data = await res.json();
     if (!data.ok) { out.innerHTML = `<p class="muted">Error: ${escapeHtml(data.error || 'failed')}</p>`; return; }
     const proc = data.process || {};
@@ -663,7 +888,7 @@ async function loadFridaApplications(serial) {
   const body = document.getElementById('frida-process-body');
   if (body) body.innerHTML = `<tr><td colspan="4">Loading applications...</td></tr>`;
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/applications`);
+    const res = await apiFetch(fridaApiUrl(serial, '/applications'));
     const data = await res.json();
     if (!data.ok) { if (body) body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(data.error || 'failed')}</td></tr>`; return; }
     FRIDA_APPLICATIONS = data.applications || [];
@@ -707,14 +932,14 @@ function renderFridaAppTable() {
   body.querySelectorAll('button[data-frida-killproc]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const serial = getSelectedSerial();
-      if (serial && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
+      if ((serial || fridaIsMacScope()) && confirm(`Kill PID ${btn.dataset.fridaKillproc}?`)) fridaPidAction(serial, 'kill', btn.dataset.fridaKillproc);
     });
   });
 }
 
 async function selectFridaFrontmost(serial) {
   try {
-    const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/frontmost`);
+    const res = await apiFetch(fridaApiUrl(serial, '/frontmost'));
     const data = await res.json();
     if (!data.ok) { toast(`Frontmost failed: ${data.error}`, 'error'); return; }
     const app = data.application;
@@ -798,6 +1023,11 @@ function enableFridaSessionControls(enabled) {
 }
 
 async function attachFrida(serial, spawn = false) {
+  const device = getSelectedDevice();
+  if (!fridaRequireAndroidDevice(serial, device)) {
+    toast('Select an Android device or switch to Mac mode', 'error');
+    return;
+  }
   const source = document.getElementById('frida-script-editor').value;
   const body = { script_source: source };
   const runtimeEl = document.getElementById('frida-runtime-select');
@@ -819,7 +1049,7 @@ async function attachFrida(serial, spawn = false) {
   }
   if (spawn) {
     const pkg = document.getElementById('frida-spawn-package').value.trim();
-    if (!pkg) { toast('Enter a package name to spawn', 'error'); return; }
+    if (!pkg) { toast(fridaIsMacScope() ? 'Enter a program path or bundle id to spawn' : 'Enter a package name to spawn', 'error'); return; }
     body.spawn = pkg;
     const argvText = (document.getElementById('frida-spawn-argv')?.value || '').trim();
     if (argvText) {
@@ -847,7 +1077,7 @@ async function attachFrida(serial, spawn = false) {
     if (!FRIDA_SELECTED_PID) { toast('Select a running process on the Target tab first', 'error'); return; }
     body.target = FRIDA_SELECTED_PID;
   }
-  const res = await apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/attach`, { method: 'POST', body });
+  const res = await apiFetch(fridaApiUrl(serial, '/attach'), { method: 'POST', body });
   const data = await res.json();
   if (!data.ok) { toast(`Attach failed: ${data.error}`, 'error'); return; }
   activateFridaSession(data.session_id, {
@@ -1199,7 +1429,7 @@ function handleFridaStreamEntry(entry) {
       'message',
     );
     const serial = getSelectedSerial();
-    if (serial) {
+    if (serial || fridaIsMacScope()) {
       if (msg.type.startsWith('spawn')) loadFridaPendingSpawn(serial);
       if (msg.type.startsWith('child')) loadFridaPendingChildren(serial);
     }
@@ -1230,21 +1460,22 @@ function startFridaStream(sessionId) {
 }
 
 function startFridaDeviceEventPoll(serial) {
-  if (!serial) return;
-  if (fridaDeviceEventTimer && fridaDeviceEventSerial === serial) return;
+  if (!serial && !fridaIsMacScope()) return;
+  const key = fridaScopeKey(serial);
+  if (fridaDeviceEventTimer && fridaDeviceEventSerial === key) return;
   if (fridaDeviceEventTimer) clearInterval(fridaDeviceEventTimer);
-  fridaDeviceEventSerial = serial;
+  fridaDeviceEventSerial = key;
   fridaDeviceEventAfter = 0;
-  apiFetch(`/api/devices/${encodeURIComponent(serial)}/frida/events/wire`, { method: 'POST' }).catch(() => {});
+  apiFetch(fridaApiUrl(serial, '/events/wire'), { method: 'POST' }).catch(() => {});
   fridaDeviceEventTimer = setInterval(() => pollFridaDeviceEvents(serial), 2500);
   pollFridaDeviceEvents(serial);
 }
 
 async function pollFridaDeviceEvents(serial) {
-  if (!serial || fridaDeviceEventSerial !== serial) return;
+  if ((!serial && !fridaIsMacScope()) || fridaDeviceEventSerial !== fridaScopeKey(serial)) return;
   try {
     const res = await apiFetch(
-      `/api/devices/${encodeURIComponent(serial)}/frida/events?after=${encodeURIComponent(fridaDeviceEventAfter)}&limit=50`,
+      `${fridaApiUrl(serial, '/events')}?after=${encodeURIComponent(fridaDeviceEventAfter)}&limit=50`,
     );
     const data = await res.json();
     if (!data.ok) return;
@@ -1291,7 +1522,7 @@ async function sendFridaStdin(serial) {
   if (!data) { toast('Enter data to send', 'error'); return; }
   try {
     const res = await apiFetch(
-      `/api/devices/${encodeURIComponent(serial)}/frida/input/${encodeURIComponent(pid)}`,
+      fridaApiUrl(serial, `/input/${encodeURIComponent(pid)}`),
       { method: 'POST', body: { data, encoding } },
     );
     const result = await res.json();
